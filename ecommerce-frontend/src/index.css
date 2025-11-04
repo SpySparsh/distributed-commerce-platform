@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.input {
+  @apply border rounded w-full p-2;
+}
+.btn-primary {
+  @apply bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded;
+}
+body {
+  background: linear-gradient(to bottom, #faefef, #dce8f5); /* soft blue gradient */
+  min-height: 100vh;
+  font-family: 'Inter', sans-serif;
+}
