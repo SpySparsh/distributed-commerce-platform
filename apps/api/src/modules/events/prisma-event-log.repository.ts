@@ -1,9 +1,10 @@
 import type { PrismaClient } from "@ecommerce/database";
-import type { DomainEvent } from "@ecommerce/events";
+import { domainEventSchema, type DomainEvent } from "@ecommerce/events";
 import type {
   DomainEventLogRecord,
   DomainEventLogStatus,
-  EventLogRepository
+  EventLogRepository,
+  PublishableDomainEventLogRecord
 } from "./event-log.repository.js";
 
 interface DomainEventLogRow {
@@ -12,6 +13,11 @@ interface DomainEventLogRow {
   readonly name: string;
   readonly aggregateType: string;
   readonly aggregateId: string;
+  readonly correlationId: string | null;
+  readonly causationId: string | null;
+  readonly actorUserId: string | null;
+  readonly schemaVersion: number;
+  readonly payload: unknown;
   readonly status: DomainEventLogStatus;
   readonly occurredAt: Date;
   readonly publishedAt: Date | null;
@@ -34,6 +40,29 @@ const toLogRecord = (row: DomainEventLogRow): DomainEventLogRecord => ({
   ...(row.failureReason === null ? {} : { failureReason: row.failureReason })
 });
 
+const toPublishableRecord = (row: DomainEventLogRow): PublishableDomainEventLogRecord => {
+  const event = domainEventSchema.parse({
+    name: row.name,
+    metadata: {
+      eventId: row.id,
+      tenantId: row.tenantId,
+      aggregateId: row.aggregateId,
+      aggregateType: row.aggregateType,
+      occurredAt: row.occurredAt.toISOString(),
+      ...(row.correlationId === null ? {} : { correlationId: row.correlationId }),
+      ...(row.causationId === null ? {} : { causationId: row.causationId }),
+      ...(row.actorUserId === null ? {} : { actorUserId: row.actorUserId }),
+      schemaVersion: row.schemaVersion
+    },
+    payload: row.payload
+  });
+
+  return {
+    ...toLogRecord(row),
+    event
+  };
+};
+
 export class PrismaEventLogRepository implements EventLogRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -55,6 +84,19 @@ export class PrismaEventLogRepository implements EventLogRepository {
     });
 
     return toLogRecord(row);
+  }
+
+  async findPublishable(limit: number): Promise<readonly PublishableDomainEventLogRecord[]> {
+    const rows = await this.prisma.domainEventLog.findMany({
+      where: {
+        status: "pending",
+        deletedAt: null
+      },
+      orderBy: [{ occurredAt: "asc" }, { id: "asc" }],
+      take: limit
+    });
+
+    return rows.map(toPublishableRecord);
   }
 
   async markPublished(eventId: string): Promise<void> {

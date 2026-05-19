@@ -70,6 +70,16 @@ export const releaseExpiredInventoryReservationsJobSchema = z.object({
   })
 });
 
+export const reconcileInventoryReservationsJobSchema = z.object({
+  name: z.literal(jobNames.reconcileInventoryReservations),
+  metadata: jobMetadataSchema,
+  data: z.object({
+    tenantId: uuidSchema.optional(),
+    batchSize: z.number().int().min(1).max(1_000).default(100),
+    repair: z.boolean().default(false)
+  })
+});
+
 export const indexProductSearchDocumentJobSchema = z.object({
   name: z.literal(jobNames.indexProductSearchDocument),
   metadata: jobMetadataSchema,
@@ -123,6 +133,7 @@ export const ecommerceJobSchema = z.discriminatedUnion("name", [
   paymentRetryJobSchema,
   stockSyncJobSchema,
   releaseExpiredInventoryReservationsJobSchema,
+  reconcileInventoryReservationsJobSchema,
   indexProductSearchDocumentJobSchema,
   deleteProductSearchDocumentJobSchema,
   rebuildSearchIndexJobSchema,
@@ -136,6 +147,7 @@ export type AnalyticsJob = z.infer<typeof analyticsJobSchema>;
 export type PaymentRetryJob = z.infer<typeof paymentRetryJobSchema>;
 export type StockSyncJob = z.infer<typeof stockSyncJobSchema>;
 export type ReleaseExpiredInventoryReservationsJob = z.infer<typeof releaseExpiredInventoryReservationsJobSchema>;
+export type ReconcileInventoryReservationsJob = z.infer<typeof reconcileInventoryReservationsJobSchema>;
 export type IndexProductSearchDocumentJob = z.infer<typeof indexProductSearchDocumentJobSchema>;
 export type DeleteProductSearchDocumentJob = z.infer<typeof deleteProductSearchDocumentJobSchema>;
 export type RebuildSearchIndexJob = z.infer<typeof rebuildSearchIndexJobSchema>;

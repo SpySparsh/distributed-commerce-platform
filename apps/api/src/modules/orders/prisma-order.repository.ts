@@ -460,6 +460,8 @@ export class PrismaOrderRepository implements OrderRepository {
             },
             select: {
               id: true,
+              inventoryItemId: true,
+              variantId: true,
               quantity: true
             }
           });
@@ -468,19 +470,36 @@ export class PrismaOrderRepository implements OrderRepository {
             throw orderInventoryNotReservedError();
           }
 
-          const consumedItems = await tx.$executeRaw`
-            UPDATE "InventoryItem"
-            SET "quantity" = GREATEST("quantity" - ${item.quantity}, 0),
-                "reserved" = GREATEST("reserved" - ${item.quantity}, 0),
-                "version" = "version" + 1,
-                "updatedAt" = NOW()
-            WHERE "tenantId" = ${input.tenantId}::uuid
-              AND "variantId" = ${item.variantId}::uuid
-              AND "reserved" >= ${item.quantity}
-          `;
+          const reservationGroups = new Map<string, number>();
 
-          if (consumedItems !== 1) {
-            throw orderInventoryNotReservedError();
+          for (const reservation of activeReservations) {
+            if (reservation.variantId !== item.variantId) {
+              throw orderInventoryNotReservedError();
+            }
+
+            reservationGroups.set(
+              reservation.inventoryItemId,
+              (reservationGroups.get(reservation.inventoryItemId) ?? 0) + reservation.quantity
+            );
+          }
+
+          for (const [inventoryItemId, quantity] of reservationGroups) {
+            const consumedItems = await tx.$executeRaw`
+              UPDATE "InventoryItem"
+              SET "quantity" = "quantity" - ${quantity},
+                  "reserved" = "reserved" - ${quantity},
+                  "version" = "version" + 1,
+                  "updatedAt" = NOW()
+              WHERE "id" = ${inventoryItemId}::uuid
+                AND "tenantId" = ${input.tenantId}::uuid
+                AND "variantId" = ${item.variantId}::uuid
+                AND "quantity" >= ${quantity}
+                AND "reserved" >= ${quantity}
+            `;
+
+            if (consumedItems !== 1) {
+              throw orderInventoryNotReservedError();
+            }
           }
 
           const consumedReservations = await tx.inventoryReservation.updateMany({

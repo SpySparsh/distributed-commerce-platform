@@ -19,6 +19,7 @@ export const jobNames = {
   retryPayment: "payment.retry",
   syncStock: "stock.sync",
   releaseExpiredInventoryReservations: "inventory.reservations.releaseExpired",
+  reconcileInventoryReservations: "inventory.reservations.reconcile",
   indexProductSearchDocument: "search.product.index",
   deleteProductSearchDocument: "search.product.delete",
   rebuildSearchIndex: "search.index.rebuild",

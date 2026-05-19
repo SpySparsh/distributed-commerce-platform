@@ -7,6 +7,7 @@ import type { WorkerEnv } from "../env.js";
 import { consumeDomainEvent } from "./domain-event-consumers.js";
 import { handleEmailJob } from "./email.js";
 import { handleInventoryCleanupJob } from "./inventory-cleanup.js";
+import { handleInventoryReconciliationJob } from "./inventory-reconciliation.js";
 import { handlePaymentRetryJob } from "./payment-retry.js";
 import {
   handleProductDeleteJob,
@@ -65,6 +66,9 @@ export const handleWorkerJob = async (
     case "inventory.reservations.releaseExpired":
       await handleInventoryCleanupJob(job, context);
       return;
+    case "inventory.reservations.reconcile":
+      await handleInventoryReconciliationJob(job, context);
+      return;
     case "search.product.index":
       await handleProductIndexJob(job, context);
       return;
@@ -75,7 +79,41 @@ export const handleWorkerJob = async (
       await handleSearchRebuildJob(job, context);
       return;
     case "domain-event.dispatch":
-      await consumeDomainEvent(domainEventSchema.parse(job.data.event), context);
+      {
+        const event = domainEventSchema.parse(job.data.event);
+
+        try {
+          await consumeDomainEvent(event, context);
+          await context.prisma.domainEventLog.updateMany({
+            where: {
+              id: event.metadata.eventId,
+              status: {
+                in: ["pending", "published", "failed"]
+              }
+            },
+            data: {
+              status: "consumed",
+              consumedAt: new Date(),
+              failureReason: null
+            }
+          });
+        } catch (error) {
+          await context.prisma.domainEventLog.updateMany({
+            where: {
+              id: event.metadata.eventId,
+              status: {
+                not: "consumed"
+              }
+            },
+            data: {
+              status: "failed",
+              failedAt: new Date(),
+              failureReason: error instanceof Error ? error.message : "Unknown domain event consumer error"
+            }
+          });
+          throw error;
+        }
+      }
       return;
   }
 };

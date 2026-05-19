@@ -197,14 +197,20 @@ export class PrismaInventoryRepository implements InventoryRepository {
         throw inventoryReservationConflictError();
       }
 
-      await tx.$executeRaw`
+      const releasedInventory = await tx.$executeRaw`
         UPDATE "InventoryItem"
-        SET "reserved" = GREATEST("reserved" - ${reservation.quantity}, 0),
+        SET "reserved" = "reserved" - ${reservation.quantity},
             "version" = "version" + 1,
             "updatedAt" = NOW()
         WHERE "id" = ${reservation.inventoryItemId}::uuid
           AND "tenantId" = ${tenantId}::uuid
+          AND "variantId" = ${reservation.variantId}::uuid
+          AND "reserved" >= ${reservation.quantity}
       `;
+
+      if (releasedInventory !== 1) {
+        throw inventoryReservationConflictError();
+      }
 
       const updated = await tx.inventoryReservation.findFirst({
         where: {
@@ -256,15 +262,22 @@ export class PrismaInventoryRepository implements InventoryRepository {
         throw inventoryReservationConflictError();
       }
 
-      await tx.$executeRaw`
+      const consumedInventory = await tx.$executeRaw`
         UPDATE "InventoryItem"
-        SET "quantity" = GREATEST("quantity" - ${reservation.quantity}, 0),
-            "reserved" = GREATEST("reserved" - ${reservation.quantity}, 0),
+        SET "quantity" = "quantity" - ${reservation.quantity},
+            "reserved" = "reserved" - ${reservation.quantity},
             "version" = "version" + 1,
             "updatedAt" = NOW()
         WHERE "id" = ${reservation.inventoryItemId}::uuid
           AND "tenantId" = ${input.tenantId}::uuid
+          AND "variantId" = ${reservation.variantId}::uuid
+          AND "quantity" >= ${reservation.quantity}
+          AND "reserved" >= ${reservation.quantity}
       `;
+
+      if (consumedInventory !== 1) {
+        throw inventoryReservationConflictError();
+      }
 
       const updated = await tx.inventoryReservation.findFirst({
         where: {
@@ -317,14 +330,19 @@ export class PrismaInventoryRepository implements InventoryRepository {
           continue;
         }
 
-        await tx.$executeRaw`
+        const releasedInventory = await tx.$executeRaw`
           UPDATE "InventoryItem"
-          SET "reserved" = GREATEST("reserved" - ${reservation.quantity}, 0),
+          SET "reserved" = "reserved" - ${reservation.quantity},
               "version" = "version" + 1,
               "updatedAt" = NOW()
           WHERE "id" = ${reservation.inventoryItemId}::uuid
             AND "tenantId" = ${reservation.tenantId}::uuid
+            AND "variantId" = ${reservation.variantId}::uuid
+            AND "reserved" >= ${reservation.quantity}
         `;
+        if (releasedInventory !== 1) {
+          throw inventoryReservationConflictError();
+        }
         released += 1;
       }
 

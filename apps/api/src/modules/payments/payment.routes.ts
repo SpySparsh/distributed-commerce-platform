@@ -12,7 +12,6 @@ import {
   webhookParamsSchema
 } from "./payment.schemas.js";
 import { createPaymentService } from "./payment.service.js";
-import type { DomainEventPublisher } from "../events/domain-event-publisher.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -38,13 +37,11 @@ const readPayloadBuffer = async (payload: AsyncIterable<unknown>): Promise<Buffe
 
 export interface PaymentRouteOptions {
   readonly repository: PaymentRepository;
-  readonly eventPublisher: DomainEventPublisher;
 }
 
 export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app, options) => {
   const service = createPaymentService(
     options.repository,
-    options.eventPublisher,
     app.queues,
     app.config
   );

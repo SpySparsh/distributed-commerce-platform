@@ -16,8 +16,13 @@ export interface DomainEventLogRecord {
   readonly failureReason?: string;
 }
 
+export interface PublishableDomainEventLogRecord extends DomainEventLogRecord {
+  readonly event: DomainEvent;
+}
+
 export interface EventLogRepository {
   append(event: DomainEvent): Promise<DomainEventLogRecord>;
+  findPublishable(limit: number): Promise<readonly PublishableDomainEventLogRecord[]>;
   markPublished(eventId: string): Promise<void>;
   markConsumed(eventId: string): Promise<void>;
   markFailed(eventId: string, reason: string): Promise<void>;

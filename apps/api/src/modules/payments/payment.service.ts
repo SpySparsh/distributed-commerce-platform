@@ -1,7 +1,5 @@
-import { createPaymentCompletedEvent } from "@ecommerce/events";
 import { jobNames, type QueueProducer } from "@ecommerce/queue";
 import type { ApiEnv } from "../../env.js";
-import type { DomainEventPublisher } from "../events/domain-event-publisher.js";
 import { paymentNotFoundError } from "./payment.errors.js";
 import type {
   PaymentRepository
@@ -31,7 +29,6 @@ export interface PaymentService {
 
 export const createPaymentService = (
   repository: PaymentRepository,
-  events: DomainEventPublisher,
   queues: QueueProducer,
   env: ApiEnv
 ): PaymentService => ({
@@ -109,25 +106,6 @@ export const createPaymentService = (
       tenantId: payment.tenantId,
       webhook
     });
-
-    if (updatedPayment?.status === "captured") {
-      await events.publish(createPaymentCompletedEvent(
-        {
-          tenantId: updatedPayment.tenantId,
-          aggregateId: updatedPayment.id
-        },
-        {
-          paymentId: updatedPayment.id,
-          orderId: updatedPayment.orderId,
-          provider: updatedPayment.provider,
-          amount: updatedPayment.amount,
-          currency: updatedPayment.currency,
-          ...(updatedPayment.providerPaymentId === undefined
-            ? {}
-            : { providerPaymentId: updatedPayment.providerPaymentId })
-        }
-      ));
-    }
 
     return updatedPayment === undefined
       ? { processed: false }

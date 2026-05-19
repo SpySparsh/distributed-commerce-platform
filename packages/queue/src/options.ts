@@ -38,6 +38,11 @@ export const queueRouting = {
     attempts: 5,
     backoffMs: 10_000
   },
+  [jobNames.reconcileInventoryReservations]: {
+    queueName: queueNames.inventory,
+    attempts: 3,
+    backoffMs: 30_000
+  },
   [jobNames.indexProductSearchDocument]: {
     queueName: queueNames.search,
     attempts: 5,

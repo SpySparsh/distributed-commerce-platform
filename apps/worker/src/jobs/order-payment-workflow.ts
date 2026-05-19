@@ -83,6 +83,8 @@ export const handlePaymentCompletedOrderWorkflow = async (
         },
         select: {
           id: true,
+          inventoryItemId: true,
+          variantId: true,
           quantity: true
         }
       });
@@ -95,19 +97,36 @@ export const handlePaymentCompletedOrderWorkflow = async (
         throw new Error("Order item is not backed by active linked reservations");
       }
 
-      const consumed = await tx.$executeRaw`
-        UPDATE "InventoryItem"
-        SET "quantity" = GREATEST("quantity" - ${item.quantity}, 0),
-            "reserved" = GREATEST("reserved" - ${item.quantity}, 0),
-            "version" = "version" + 1,
-            "updatedAt" = NOW()
-        WHERE "tenantId" = ${event.metadata.tenantId}::uuid
-          AND "variantId" = ${item.variantId}::uuid
-          AND "reserved" >= ${item.quantity}
-      `;
+      const reservationGroups = new Map<string, number>();
 
-      if (consumed !== 1) {
-        throw new Error("Order inventory was not reserved before payment completion");
+      for (const reservation of activeReservations) {
+        if (reservation.variantId !== item.variantId) {
+          throw new Error("Reservation variant does not match order item variant");
+        }
+
+        reservationGroups.set(
+          reservation.inventoryItemId,
+          (reservationGroups.get(reservation.inventoryItemId) ?? 0) + reservation.quantity
+        );
+      }
+
+      for (const [inventoryItemId, quantity] of reservationGroups) {
+        const consumed = await tx.$executeRaw`
+          UPDATE "InventoryItem"
+          SET "quantity" = "quantity" - ${quantity},
+              "reserved" = "reserved" - ${quantity},
+              "version" = "version" + 1,
+              "updatedAt" = NOW()
+          WHERE "id" = ${inventoryItemId}::uuid
+            AND "tenantId" = ${event.metadata.tenantId}::uuid
+            AND "variantId" = ${item.variantId}::uuid
+            AND "quantity" >= ${quantity}
+            AND "reserved" >= ${quantity}
+        `;
+
+        if (consumed !== 1) {
+          throw new Error("Order inventory was not reserved before payment completion");
+        }
       }
 
       const consumedReservations = await tx.inventoryReservation.updateMany({

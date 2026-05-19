@@ -41,14 +41,19 @@ export const handleInventoryCleanupJob = async (
         continue;
       }
 
-      await tx.$executeRaw`
+      const releasedInventory = await tx.$executeRaw`
         UPDATE "InventoryItem"
-        SET "reserved" = GREATEST("reserved" - ${reservation.quantity}, 0),
+        SET "reserved" = "reserved" - ${reservation.quantity},
             "version" = "version" + 1,
             "updatedAt" = NOW()
         WHERE "id" = ${reservation.inventoryItemId}::uuid
           AND "tenantId" = ${reservation.tenantId}::uuid
+          AND "variantId" = ${reservation.variantId}::uuid
+          AND "reserved" >= ${reservation.quantity}
       `;
+      if (releasedInventory !== 1) {
+        throw new Error("Expired reservation could not be released from its inventory item");
+      }
       released += 1;
     }
 

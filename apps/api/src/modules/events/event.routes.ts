@@ -12,8 +12,7 @@ export interface EventRouteOptions {
 
 export const eventRoutes: FastifyPluginAsync<EventRouteOptions> = async (app, options) => {
   const publisher = createDomainEventPublisher(
-    options.repository,
-    app.queues
+    options.repository
   );
 
   app.post(
@@ -36,13 +35,12 @@ export const eventRoutes: FastifyPluginAsync<EventRouteOptions> = async (app, op
         }
       };
       const authorizedEvent = publishDomainEventBodySchema.parse(securedEvent);
-      const jobId = await publisher.publish(authorizedEvent);
+      const eventId = await publisher.publish(authorizedEvent);
 
       await reply.status(202).send({
         ok: true,
         data: {
-          eventId: authorizedEvent.metadata.eventId,
-          jobId
+          eventId
         }
       });
     }

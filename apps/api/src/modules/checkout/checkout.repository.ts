@@ -36,6 +36,7 @@ interface CartItemSnapshot {
 interface ReservationSnapshot {
   readonly id: string;
   readonly inventoryItemId: string;
+  readonly variantId: string;
   readonly quantity: number;
   readonly expiresAt: Date;
 }
@@ -521,6 +522,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
         select: {
           id: true,
           inventoryItemId: true,
+          variantId: true,
           quantity: true,
           expiresAt: true
         },
@@ -546,6 +548,9 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       const activeQuantity = sumReservationQuantity(cartItem.reservations);
 
       if (activeQuantity === cartItem.quantity) {
+        if (cartItem.reservations.some((reservation) => reservation.variantId !== cartItem.variantId)) {
+          throw checkoutInventoryUnavailableError();
+        }
         reservationsByCartItemId.set(cartItem.id, cartItem.reservations);
         continue;
       }
@@ -582,14 +587,20 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
         throw checkoutInventoryUnavailableError();
       }
 
-      await tx.$executeRaw`
+      const releasedInventory = await tx.$executeRaw`
         UPDATE "InventoryItem"
-        SET "reserved" = GREATEST("reserved" - ${reservation.quantity}, 0),
+        SET "reserved" = "reserved" - ${reservation.quantity},
             "version" = "version" + 1,
             "updatedAt" = NOW()
         WHERE "id" = ${reservation.inventoryItemId}::uuid
           AND "tenantId" = ${tenantId}::uuid
+          AND "variantId" = ${reservation.variantId}::uuid
+          AND "reserved" >= ${reservation.quantity}
       `;
+
+      if (releasedInventory !== 1) {
+        throw checkoutInventoryUnavailableError();
+      }
     }
   }
 
@@ -638,6 +649,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       select: {
         id: true,
         inventoryItemId: true,
+        variantId: true,
         quantity: true,
         expiresAt: true
       }
@@ -785,6 +797,10 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       const itemReservations = reservations.get(cartItem.id) ?? [];
 
       if (sumReservationQuantity(itemReservations) !== orderItem.quantity) {
+        throw checkoutInventoryUnavailableError();
+      }
+
+      if (itemReservations.some((reservation) => reservation.variantId !== orderItem.variantId)) {
         throw checkoutInventoryUnavailableError();
       }
 

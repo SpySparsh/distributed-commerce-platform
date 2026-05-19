@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from "@ecommerce/database";
+import { createPaymentCompletedEvent } from "@ecommerce/events";
 import { paymentNotFoundError } from "./payment.errors.js";
 import type {
   ApplyPaymentWebhookInput,
@@ -58,6 +59,9 @@ interface PaymentTransactionClient {
     findFirst(args: unknown): Promise<PaymentWebhookEventRow | null>;
     update(args: unknown): Promise<PaymentWebhookEventRow>;
     updateMany(args: unknown): Promise<{ readonly count: number }>;
+  };
+  readonly domainEventLog: {
+    create(args: unknown): Promise<unknown>;
   };
 }
 
@@ -315,6 +319,39 @@ export class PrismaPaymentRepository implements PaymentRepository {
             : {})
         }
       });
+
+      if (input.webhook.status === "captured" && payment.status !== "captured") {
+        const event = createPaymentCompletedEvent(
+          {
+            tenantId: updated.tenantId,
+            aggregateId: updated.id,
+            correlationId: input.webhook.providerEventId,
+            occurredAt: now
+          },
+          {
+            paymentId: updated.id,
+            orderId: updated.orderId,
+            provider: toSupportedPaymentProvider(updated.provider),
+            amount: updated.amount.toString(),
+            currency: updated.currency,
+            ...(updated.providerPaymentId === null ? {} : { providerPaymentId: updated.providerPaymentId })
+          }
+        );
+
+        await tx.domainEventLog.create({
+          data: {
+            id: event.metadata.eventId,
+            tenantId: event.metadata.tenantId,
+            name: event.name,
+            aggregateType: event.metadata.aggregateType,
+            aggregateId: event.metadata.aggregateId,
+            ...(event.metadata.correlationId === undefined ? {} : { correlationId: event.metadata.correlationId }),
+            schemaVersion: event.metadata.schemaVersion,
+            payload: toJsonObject(event.payload),
+            occurredAt: new Date(event.metadata.occurredAt)
+          }
+        });
+      }
 
       return toPaymentDto(updated);
     });
