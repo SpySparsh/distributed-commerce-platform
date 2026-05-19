@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@ecommerce/database";
+import { Prisma, type PrismaClient } from "@ecommerce/database";
 import { paymentNotFoundError } from "./payment.errors.js";
 import type {
   ApplyPaymentWebhookInput,
@@ -57,8 +57,6 @@ interface PaymentTransactionClient {
     create(args: unknown): Promise<PaymentWebhookEventRow>;
     findFirst(args: unknown): Promise<PaymentWebhookEventRow | null>;
     update(args: unknown): Promise<PaymentWebhookEventRow>;
-  };
-  readonly order: {
     updateMany(args: unknown): Promise<{ readonly count: number }>;
   };
 }
@@ -127,20 +125,6 @@ const statusTimestamp = (status: PaymentStatus, now: Date): Record<string, Date>
   }
 };
 
-const orderStatusForPayment = (status: PaymentStatus): "paid" | "pending" | "cancelled" | undefined => {
-  switch (status) {
-    case "captured":
-      return "paid";
-    case "failed":
-    case "cancelled":
-      return "pending";
-    case "pending":
-    case "authorized":
-    case "refunded":
-      return undefined;
-  }
-};
-
 export class PrismaPaymentRepository implements PaymentRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -186,6 +170,21 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return payment === null ? undefined : toPaymentDto(payment);
   }
 
+  async findPaymentByProviderPaymentId(
+    provider: PaymentProvider,
+    providerPaymentId: string
+  ): Promise<PaymentDto | undefined> {
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        provider,
+        providerPaymentId,
+        deletedAt: null
+      }
+    });
+
+    return payment === null ? undefined : toPaymentDto(payment);
+  }
+
   async updateProviderPayment(input: UpdateProviderPaymentInput): Promise<PaymentDto> {
     const payment = await this.prisma.payment.update({
       where: {
@@ -205,30 +204,38 @@ export class PrismaPaymentRepository implements PaymentRepository {
   }
 
   async recordWebhook(input: RecordWebhookInput): Promise<PaymentWebhookEventDto> {
-    const existing = await this.prisma.paymentWebhookEvent.findFirst({
-      where: {
-        tenantId: input.tenantId,
-        provider: input.webhook.provider,
-        providerEventId: input.webhook.providerEventId,
-        deletedAt: null
-      }
-    });
+    try {
+      const event = await this.prisma.paymentWebhookEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          provider: input.webhook.provider,
+          providerEventId: input.webhook.providerEventId,
+          eventType: input.webhook.eventType,
+          payload: toJsonObject(input.webhook.payload)
+        }
+      });
 
-    if (existing !== null) {
+      return toWebhookDto(event);
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        throw error;
+      }
+
+      const existing = await this.prisma.paymentWebhookEvent.findFirst({
+        where: {
+          tenantId: input.tenantId,
+          provider: input.webhook.provider,
+          providerEventId: input.webhook.providerEventId,
+          deletedAt: null
+        }
+      });
+
+      if (existing === null) {
+        throw error;
+      }
+
       return toWebhookDto(existing);
     }
-
-    const event = await this.prisma.paymentWebhookEvent.create({
-      data: {
-        tenantId: input.tenantId,
-        provider: input.webhook.provider,
-        providerEventId: input.webhook.providerEventId,
-        eventType: input.webhook.eventType,
-        payload: toJsonObject(input.webhook.payload)
-      }
-    });
-
-    return toWebhookDto(event);
   }
 
   async applyWebhook(input: ApplyPaymentWebhookInput): Promise<PaymentDto | undefined> {
@@ -242,7 +249,22 @@ export class PrismaPaymentRepository implements PaymentRepository {
         }
       });
 
-      if (event === null || event.status === "processed") {
+      if (event === null || event.status !== "received") {
+        return undefined;
+      }
+
+      const claimed = await tx.paymentWebhookEvent.updateMany({
+        where: {
+          id: event.id,
+          status: "received"
+        },
+        data: {
+          status: "processed",
+          processedAt: new Date()
+        }
+      });
+
+      if (claimed.count !== 1) {
         return undefined;
       }
 
@@ -291,31 +313,6 @@ export class PrismaPaymentRepository implements PaymentRepository {
                 nextRetryAt: new Date(now.getTime() + 5 * 60 * 1_000)
               }
             : {})
-        }
-      });
-
-      const nextOrderStatus = orderStatusForPayment(input.webhook.status);
-
-      if (nextOrderStatus !== undefined) {
-        await tx.order.updateMany({
-          where: {
-            id: payment.orderId,
-            tenantId: input.tenantId
-          },
-          data: {
-            status: nextOrderStatus,
-            ...(nextOrderStatus === "paid" ? { placedAt: now } : {})
-          }
-        });
-      }
-
-      await tx.paymentWebhookEvent.update({
-        where: {
-          id: event.id
-        },
-        data: {
-          status: "processed",
-          processedAt: now
         }
       });
 

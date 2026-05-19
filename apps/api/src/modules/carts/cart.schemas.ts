@@ -1,13 +1,15 @@
 import { z } from "zod";
 
 export const cartIdentityQuerySchema = z.object({
-  tenantId: z.uuid(),
-  userId: z.uuid().optional(),
   guestId: z.string().min(8).max(160).optional(),
   deviceId: z.string().min(8).max(160).optional()
 });
 
-export type CartIdentityQuery = z.infer<typeof cartIdentityQuerySchema>;
+export type CartIdentityRequestQuery = z.infer<typeof cartIdentityQuerySchema>;
+export type CartIdentityQuery = CartIdentityRequestQuery & {
+  readonly tenantId: string;
+  readonly userId?: string;
+};
 
 export const cartParamsSchema = z.object({
   cartId: z.uuid()
@@ -32,7 +34,6 @@ export const removeCartItemParamsSchema = cartParamsSchema.extend({
 export type RemoveCartItemParams = z.infer<typeof removeCartItemParamsSchema>;
 
 export const mergeCartBodySchema = z.object({
-  tenantId: z.uuid(),
   sourceCartId: z.uuid(),
   targetCartId: z.uuid()
 });

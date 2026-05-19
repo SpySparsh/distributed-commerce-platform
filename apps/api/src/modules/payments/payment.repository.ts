@@ -42,6 +42,10 @@ export interface PaymentWebhookEventDto {
 export interface PaymentRepository {
   createPayment(input: CreatePaymentInput): Promise<PaymentDto>;
   findPaymentById(tenantId: string, paymentId: string): Promise<PaymentDto | undefined>;
+  findPaymentByProviderPaymentId(
+    provider: PaymentProvider,
+    providerPaymentId: string
+  ): Promise<PaymentDto | undefined>;
   updateProviderPayment(input: UpdateProviderPaymentInput): Promise<PaymentDto>;
   recordWebhook(input: RecordWebhookInput): Promise<PaymentWebhookEventDto>;
   applyWebhook(input: ApplyPaymentWebhookInput): Promise<PaymentDto | undefined>;

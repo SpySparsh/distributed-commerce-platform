@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { MeilisearchHttpClient } from "@ecommerce/search";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
+import { getAuthenticatedTenantId, requirePermission } from "../auth/auth.middleware.js";
+import { permissions } from "../auth/permissions.js";
 import {
   autocompleteQuerySchema,
   categorySearchQuerySchema,
@@ -80,7 +82,10 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/admin/setup-indexes",
     {
-      preHandler: [withRateLimit({ keyPrefix: "search:setup", maxRequests: 10 })]
+      preHandler: [
+        requirePermission(permissions.searchAdmin),
+        withRateLimit({ keyPrefix: "search:setup", maxRequests: 10 })
+      ]
     },
     async () => {
       await service.setupIndexes();
@@ -98,13 +103,17 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     "/admin/index-product",
     {
       preHandler: [
+        requirePermission(permissions.searchAdmin),
         withRateLimit({ keyPrefix: "search:index-product", maxRequests: 120 }),
         validateRequest({ body: indexProductBodySchema })
       ]
     },
     async (request) => {
       const body = indexProductBodySchema.parse(request.body);
-      const jobId = await service.enqueueProductIndex(body);
+      const jobId = await service.enqueueProductIndex({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      });
 
       return {
         ok: true,
@@ -119,13 +128,17 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     "/admin/delete-product",
     {
       preHandler: [
+        requirePermission(permissions.searchAdmin),
         withRateLimit({ keyPrefix: "search:delete-product", maxRequests: 120 }),
         validateRequest({ body: indexProductBodySchema })
       ]
     },
     async (request) => {
       const body = indexProductBodySchema.parse(request.body);
-      const jobId = await service.enqueueProductDelete(body);
+      const jobId = await service.enqueueProductDelete({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      });
 
       return {
         ok: true,
@@ -140,13 +153,17 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     "/admin/rebuild",
     {
       preHandler: [
+        requirePermission(permissions.searchAdmin),
         withRateLimit({ keyPrefix: "search:rebuild", maxRequests: 10 }),
         validateRequest({ body: rebuildSearchBodySchema })
       ]
     },
     async (request) => {
       const body = rebuildSearchBodySchema.parse(request.body);
-      const jobId = await service.enqueueRebuild(body);
+      const jobId = await service.enqueueRebuild({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      });
 
       return {
         ok: true,

@@ -1,5 +1,8 @@
+import { createPaymentCompletedEvent } from "@ecommerce/events";
 import { jobNames, type QueueProducer } from "@ecommerce/queue";
 import type { ApiEnv } from "../../env.js";
+import type { DomainEventPublisher } from "../events/domain-event-publisher.js";
+import { paymentNotFoundError } from "./payment.errors.js";
 import type {
   PaymentRepository
 } from "./payment.repository.js";
@@ -19,7 +22,6 @@ export interface PaymentService {
   initiatePayment(input: InitiatePaymentBody): Promise<PaymentInitiationDto>;
   getPayment(tenantId: string, paymentId: string): Promise<PaymentDto | undefined>;
   handleWebhook(input: {
-    readonly tenantId: string;
     readonly provider: PaymentProvider;
     readonly rawBody: string;
     readonly signature: string | undefined;
@@ -29,6 +31,7 @@ export interface PaymentService {
 
 export const createPaymentService = (
   repository: PaymentRepository,
+  events: DomainEventPublisher,
   queues: QueueProducer,
   env: ApiEnv
 ): PaymentService => ({
@@ -79,10 +82,20 @@ export const createPaymentService = (
     const webhook: VerifiedPaymentWebhook = providerClient.verifyWebhook({
       rawBody: input.rawBody,
       signature: input.signature,
-      tenantId: input.tenantId
+      tenantId: ""
     });
+    const payment = webhook.providerPaymentId === undefined
+      ? undefined
+      : await repository.findPaymentByProviderPaymentId(input.provider, webhook.providerPaymentId);
+
+    if (payment === undefined) {
+      return {
+        processed: false
+      };
+    }
+
     const event = await repository.recordWebhook({
-      tenantId: input.tenantId,
+      tenantId: payment.tenantId,
       webhook
     });
 
@@ -92,22 +105,44 @@ export const createPaymentService = (
       };
     }
 
-    const payment = await repository.applyWebhook({
-      tenantId: input.tenantId,
+    const updatedPayment = await repository.applyWebhook({
+      tenantId: payment.tenantId,
       webhook
     });
 
-    return payment === undefined
+    if (updatedPayment?.status === "captured") {
+      await events.publish(createPaymentCompletedEvent(
+        {
+          tenantId: updatedPayment.tenantId,
+          aggregateId: updatedPayment.id
+        },
+        {
+          paymentId: updatedPayment.id,
+          orderId: updatedPayment.orderId,
+          provider: updatedPayment.provider,
+          amount: updatedPayment.amount,
+          currency: updatedPayment.currency,
+          ...(updatedPayment.providerPaymentId === undefined
+            ? {}
+            : { providerPaymentId: updatedPayment.providerPaymentId })
+        }
+      ));
+    }
+
+    return updatedPayment === undefined
       ? { processed: false }
       : {
           processed: true,
-          payment
+          payment: updatedPayment
         };
   },
 
   async schedulePaymentRetry(input) {
     const payment = await repository.findPaymentById(input.tenantId, input.paymentId);
-    const orderId = payment?.orderId ?? input.paymentId;
+    if (payment === undefined) {
+      throw paymentNotFoundError();
+    }
+
     const retryAt = new Date(Date.now() + 5 * 60 * 1_000);
     await repository.markPaymentRetryScheduled(input.tenantId, input.paymentId, retryAt);
 
@@ -120,7 +155,7 @@ export const createPaymentService = (
       },
       data: {
         paymentId: input.paymentId,
-        orderId,
+        orderId: payment.orderId,
         attempt: 1
       }
     });

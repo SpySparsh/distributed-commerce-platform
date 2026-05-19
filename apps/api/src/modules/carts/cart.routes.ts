@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { RedisCacheClient } from "@ecommerce/cache";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
+import { getAuthenticatedTenantId, getAuthenticatedUserId, requirePermission } from "../auth/auth.middleware.js";
+import { permissions } from "../auth/permissions.js";
 import {
   cartIdentityQuerySchema,
   cartParamsSchema,
@@ -46,13 +48,18 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     "/",
     {
       preHandler: [
+        requirePermission(permissions.cartsWrite),
         withRateLimit({ keyPrefix: "carts:create", maxRequests: 120 }),
         validateRequest({ query: cartIdentityQuerySchema })
       ]
     },
     async (request) => {
       const identity = cartIdentityQuerySchema.parse(request.query);
-      const cart = await cartService.getOrCreateCart(identity);
+      const cart = await cartService.getOrCreateCart({
+        ...identity,
+        tenantId: getAuthenticatedTenantId(request),
+        userId: getAuthenticatedUserId(request)
+      });
 
       return {
         ok: true,
@@ -67,14 +74,15 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     "/:cartId",
     {
       preHandler: [
+        requirePermission(permissions.cartsRead),
         withRateLimit({ keyPrefix: "carts:get", maxRequests: 300 }),
         validateRequest({ params: cartParamsSchema, query: cartIdentityQuerySchema })
       ]
     },
     async (request, reply) => {
       const params = cartParamsSchema.parse(request.params);
-      const query = cartIdentityQuerySchema.parse(request.query);
-      const cart = await cartService.getCart(query.tenantId, params.cartId);
+      cartIdentityQuerySchema.parse(request.query);
+      const cart = await cartService.getCart(getAuthenticatedTenantId(request), params.cartId);
 
       if (cart === undefined) {
         await reply.status(404).send({
@@ -101,15 +109,16 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     "/:cartId/items",
     {
       preHandler: [
+        requirePermission(permissions.cartsWrite),
         withRateLimit({ keyPrefix: "carts:item:upsert", maxRequests: 180 }),
         validateRequest({ params: cartParamsSchema, query: cartIdentityQuerySchema, body: upsertCartItemBodySchema })
       ]
     },
     async (request) => {
       const params = cartParamsSchema.parse(request.params);
-      const query = cartIdentityQuerySchema.parse(request.query);
+      cartIdentityQuerySchema.parse(request.query);
       const body = upsertCartItemBodySchema.parse(request.body);
-      const cart = await cartService.upsertItem(query.tenantId, params.cartId, body);
+      const cart = await cartService.upsertItem(getAuthenticatedTenantId(request), params.cartId, body);
 
       return {
         ok: true,
@@ -124,14 +133,15 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     "/:cartId/items/:variantId",
     {
       preHandler: [
+        requirePermission(permissions.cartsWrite),
         withRateLimit({ keyPrefix: "carts:item:remove", maxRequests: 180 }),
         validateRequest({ params: removeCartItemParamsSchema, query: cartIdentityQuerySchema })
       ]
     },
     async (request) => {
       const params = removeCartItemParamsSchema.parse(request.params);
-      const query = cartIdentityQuerySchema.parse(request.query);
-      const cart = await cartService.removeItem(query.tenantId, params.cartId, params.variantId);
+      cartIdentityQuerySchema.parse(request.query);
+      const cart = await cartService.removeItem(getAuthenticatedTenantId(request), params.cartId, params.variantId);
 
       return {
         ok: true,
@@ -146,6 +156,7 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     "/merge",
     {
       preHandler: [
+        requirePermission(permissions.cartsWrite),
         withRateLimit({ keyPrefix: "carts:merge", maxRequests: 60 }),
         validateRequest({ body: mergeCartBodySchema })
       ]
@@ -153,7 +164,7 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     async (request) => {
       const body = mergeCartBodySchema.parse(request.body);
       const cart = await cartService.mergeGuestCart(
-        body.tenantId,
+        getAuthenticatedTenantId(request),
         body.sourceCartId,
         body.targetCartId
       );
@@ -171,14 +182,15 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     "/:cartId/sync",
     {
       preHandler: [
+        requirePermission(permissions.cartsWrite),
         withRateLimit({ keyPrefix: "carts:sync", maxRequests: 120 }),
         validateRequest({ params: cartParamsSchema, query: cartIdentityQuerySchema })
       ]
     },
     async (request) => {
       const params = cartParamsSchema.parse(request.params);
-      const query = cartIdentityQuerySchema.parse(request.query);
-      const cart = await cartService.syncCart(query.tenantId, params.cartId);
+      cartIdentityQuerySchema.parse(request.query);
+      const cart = await cartService.syncCart(getAuthenticatedTenantId(request), params.cartId);
 
       return {
         ok: true,

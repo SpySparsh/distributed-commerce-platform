@@ -462,6 +462,7 @@ model Order {
   invoiceUrl      String?
   placedAt        DateTime?   @db.Timestamptz(6)
   invoicedAt      DateTime?   @db.Timestamptz(6)
+  version         Int         @default(0)
   createdAt       DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime    @updatedAt @db.Timestamptz(6)
   deletedAt       DateTime?   @db.Timestamptz(6)

@@ -1,46 +1,79 @@
+import { Readable } from "node:stream";
 import type { FastifyPluginAsync } from "fastify";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
+import { getAuthenticatedTenantId, requirePermission } from "../auth/auth.middleware.js";
+import { permissions } from "../auth/permissions.js";
 import type { PaymentRepository } from "./payment.repository.js";
 import {
   initiatePaymentBodySchema,
   paymentParamsSchema,
   paymentRetryBodySchema,
   paymentTenantQuerySchema,
-  webhookParamsSchema,
-  webhookTenantQuerySchema
+  webhookParamsSchema
 } from "./payment.schemas.js";
 import { createPaymentService } from "./payment.service.js";
+import type { DomainEventPublisher } from "../events/domain-event-publisher.js";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    rawBody?: string;
+  }
+}
 
 const getHeaderValue = (header: string | string[] | undefined): string | undefined =>
   Array.isArray(header) ? header[0] : header;
 
-const getRawBody = (body: unknown): string =>
-  typeof body === "string" || Buffer.isBuffer(body)
-    ? body.toString()
-    : JSON.stringify(body);
+const isWebhookRequest = (url: string | undefined): boolean =>
+  url?.includes("/webhooks/") ?? false;
+
+const readPayloadBuffer = async (payload: AsyncIterable<unknown>): Promise<Buffer> => {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of payload) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+
+  return Buffer.concat(chunks);
+};
 
 export interface PaymentRouteOptions {
   readonly repository: PaymentRepository;
+  readonly eventPublisher: DomainEventPublisher;
 }
 
 export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app, options) => {
   const service = createPaymentService(
     options.repository,
+    options.eventPublisher,
     app.queues,
     app.config
   );
+
+  app.addHook("preParsing", async (request, _reply, payload) => {
+    if (!isWebhookRequest(request.url)) {
+      return payload;
+    }
+
+    const rawPayload = await readPayloadBuffer(payload);
+    request.rawBody = rawPayload.toString("utf8");
+    return Readable.from(rawPayload);
+  });
 
   app.post(
     "/",
     {
       preHandler: [
+        requirePermission(permissions.paymentsWrite),
         withRateLimit({ keyPrefix: "payments:initiate", maxRequests: 60 }),
         validateRequest({ body: initiatePaymentBodySchema })
       ]
     },
     async (request, reply) => {
       const body = initiatePaymentBodySchema.parse(request.body);
-      const payment = await service.initiatePayment(body);
+      const payment = await service.initiatePayment({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      });
 
       await reply.status(201).send({
         ok: true,
@@ -53,6 +86,7 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
     "/:paymentId",
     {
       preHandler: [
+        requirePermission(permissions.paymentsRead),
         withRateLimit({ keyPrefix: "payments:get", maxRequests: 120 }),
         validateRequest({
           params: paymentParamsSchema,
@@ -62,8 +96,8 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
     },
     async (request, reply) => {
       const params = paymentParamsSchema.parse(request.params);
-      const query = paymentTenantQuerySchema.parse(request.query);
-      const payment = await service.getPayment(query.tenantId, params.paymentId);
+      paymentTenantQuerySchema.parse(request.query);
+      const payment = await service.getPayment(getAuthenticatedTenantId(request), params.paymentId);
 
       if (payment === undefined) {
         await reply.status(404).send({
@@ -90,13 +124,17 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
     "/retry",
     {
       preHandler: [
+        requirePermission(permissions.paymentsWrite),
         withRateLimit({ keyPrefix: "payments:retry", maxRequests: 30 }),
         validateRequest({ body: paymentRetryBodySchema })
       ]
     },
     async (request) => {
       const body = paymentRetryBodySchema.parse(request.body);
-      const jobId = await service.schedulePaymentRetry(body);
+      const jobId = await service.schedulePaymentRetry({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      });
 
       return {
         ok: true,
@@ -113,22 +151,19 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
       preHandler: [
         withRateLimit({ keyPrefix: "payments:webhook", maxRequests: 1_000 }),
         validateRequest({
-          params: webhookParamsSchema,
-          query: webhookTenantQuerySchema
+          params: webhookParamsSchema
         })
       ]
     },
     async (request) => {
       const params = webhookParamsSchema.parse(request.params);
-      const query = webhookTenantQuerySchema.parse(request.query);
       const signature =
         params.provider === "stripe"
           ? getHeaderValue(request.headers["stripe-signature"])
           : getHeaderValue(request.headers["x-razorpay-signature"]);
       const result = await service.handleWebhook({
-        tenantId: query.tenantId,
         provider: params.provider,
-        rawBody: getRawBody(request.body),
+        rawBody: request.rawBody ?? "",
         signature
       });
 

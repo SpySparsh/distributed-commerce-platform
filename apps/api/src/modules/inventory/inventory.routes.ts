@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
+import { getAuthenticatedTenantId, requirePermission } from "../auth/auth.middleware.js";
+import { permissions } from "../auth/permissions.js";
 import { createRedisCacheClient } from "./redis-cache-client.js";
 import type { InventoryRepository } from "./inventory.repository.js";
 import {
@@ -27,6 +29,7 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
     "/variants/:variantId/availability",
     {
       preHandler: [
+        requirePermission(permissions.inventoryRead),
         withRateLimit({ keyPrefix: "inventory:availability", maxRequests: 300 }),
         validateRequest({
           params: inventoryVariantParamsSchema,
@@ -36,8 +39,8 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
     },
     async (request, reply) => {
       const params = inventoryVariantParamsSchema.parse(request.params);
-      const query = inventoryTenantQuerySchema.parse(request.query);
-      const availability = await service.getAvailability(query.tenantId, params.variantId);
+      inventoryTenantQuerySchema.parse(request.query);
+      const availability = await service.getAvailability(getAuthenticatedTenantId(request), params.variantId);
 
       if (availability === undefined) {
         await reply.status(404).send({
@@ -64,13 +67,17 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
     "/reservations",
     {
       preHandler: [
+        requirePermission(permissions.inventoryWrite),
         withRateLimit({ keyPrefix: "inventory:reserve", maxRequests: 120 }),
         validateRequest({ body: reserveInventoryBodySchema })
       ]
     },
     async (request, reply) => {
       const body = reserveInventoryBodySchema.parse(request.body);
-      const reservation = await service.reserveStock(body);
+      const reservation = await service.reserveStock({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      });
 
       await reply.status(201).send({
         ok: true,
@@ -85,6 +92,7 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
     "/reservations/:reservationId/release",
     {
       preHandler: [
+        requirePermission(permissions.inventoryWrite),
         withRateLimit({ keyPrefix: "inventory:release", maxRequests: 120 }),
         validateRequest({
           params: inventoryReservationParamsSchema,
@@ -94,8 +102,8 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
     },
     async (request) => {
       const params = inventoryReservationParamsSchema.parse(request.params);
-      const body = reservationTenantBodySchema.parse(request.body);
-      const reservation = await service.releaseReservation(body.tenantId, params.reservationId);
+      reservationTenantBodySchema.parse(request.body);
+      const reservation = await service.releaseReservation(getAuthenticatedTenantId(request), params.reservationId);
 
       return {
         ok: true,
@@ -110,6 +118,7 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
     "/reservations/:reservationId/consume",
     {
       preHandler: [
+        requirePermission(permissions.inventoryWrite),
         withRateLimit({ keyPrefix: "inventory:consume", maxRequests: 120 }),
         validateRequest({
           params: inventoryReservationParamsSchema,
@@ -121,7 +130,7 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
       const params = inventoryReservationParamsSchema.parse(request.params);
       const body = consumeReservationBodySchema.parse(request.body);
       const reservation = await service.consumeReservation({
-        tenantId: body.tenantId,
+        tenantId: getAuthenticatedTenantId(request),
         reservationId: params.reservationId,
         ...(body.orderItemId === undefined ? {} : { orderItemId: body.orderItemId })
       });
@@ -139,6 +148,7 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
     "/reservations/release-expired",
     {
       preHandler: [
+        requirePermission(permissions.inventoryWrite),
         withRateLimit({ keyPrefix: "inventory:release-expired", maxRequests: 30 }),
         validateRequest({ body: releaseExpiredReservationsBodySchema })
       ]
@@ -148,7 +158,7 @@ export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async 
       const result = await service.releaseExpiredReservations({
         now: new Date(),
         batchSize: body.batchSize,
-        ...(body.tenantId === undefined ? {} : { tenantId: body.tenantId })
+        tenantId: getAuthenticatedTenantId(request)
       });
 
       return {

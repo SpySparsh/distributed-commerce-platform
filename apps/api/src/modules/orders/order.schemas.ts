@@ -9,7 +9,6 @@ export const orderParamsSchema = z.object({
 });
 
 export const orderTenantQuerySchema = z.object({
-  tenantId: uuidSchema
 });
 
 export const createOrderItemSchema = z.object({
@@ -24,8 +23,6 @@ export const createOrderItemSchema = z.object({
 });
 
 export const createOrderBodySchema = z.object({
-  tenantId: uuidSchema,
-  userId: uuidSchema.optional(),
   cartId: uuidSchema.optional(),
   email: z.email(),
   subtotalAmount: moneySchema,
@@ -41,15 +38,20 @@ export const createOrderBodySchema = z.object({
 });
 
 export const transitionOrderBodySchema = z.object({
-  tenantId: uuidSchema,
   nextStatus: z.enum(["confirmed", "paid", "fulfilled", "cancelled", "refunded"]),
   paymentId: uuidSchema.optional(),
   reason: z.string().min(1).max(500).optional()
 });
 
 export const invoiceOrderBodySchema = z.object({
-  tenantId: uuidSchema
 });
 
-export type CreateOrderBody = z.infer<typeof createOrderBodySchema>;
-export type TransitionOrderBody = z.infer<typeof transitionOrderBodySchema>;
+export type CreateOrderRequestBody = z.infer<typeof createOrderBodySchema>;
+export type CreateOrderBody = CreateOrderRequestBody & {
+  readonly tenantId: string;
+  readonly userId?: string;
+};
+export type TransitionOrderRequestBody = z.infer<typeof transitionOrderBodySchema>;
+export type TransitionOrderBody = TransitionOrderRequestBody & {
+  readonly tenantId: string;
+};

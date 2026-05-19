@@ -1,4 +1,6 @@
 import { QueueEvents, Worker, type ConnectionOptions, type Job } from "bullmq";
+import type { PrismaClient } from "@ecommerce/database";
+import type { EcommerceSearchClient } from "@ecommerce/search";
 import {
   createQueueProducer,
   ecommerceJobSchema,
@@ -7,6 +9,7 @@ import {
   type WorkerJob
 } from "@ecommerce/queue";
 import type { Logger } from "pino";
+import type { WorkerEnv } from "../env.js";
 import { handleWorkerJob } from "../jobs/handlers.js";
 import { enqueueDeadLetter } from "./dead-letter.js";
 
@@ -32,6 +35,9 @@ const getErrorMessage = (error: unknown): string =>
 
 export const createWorkers = (
   connection: ConnectionOptions,
+  prisma: PrismaClient,
+  search: EcommerceSearchClient,
+  env: WorkerEnv,
   concurrency: number,
   logger: Logger
 ): WorkerRuntime => {
@@ -50,7 +56,10 @@ export const createWorkers = (
 
           await handleWorkerJob(parsed as WorkerJob, {
             logger,
-            queues: producer
+            queues: producer,
+            prisma,
+            search,
+            env
           });
         },
         {
@@ -75,6 +84,29 @@ export const createWorkers = (
   });
 
   for (const worker of workers) {
+    worker.on("active", (job) => {
+      logger.info(
+        {
+          queueName: worker.name,
+          jobId: job.id,
+          attemptsMade: job.attemptsMade,
+          attempts: job.opts.attempts
+        },
+        "Worker job active"
+      );
+    });
+
+    worker.on("completed", (job) => {
+      logger.info(
+        {
+          queueName: worker.name,
+          jobId: job.id,
+          attemptsMade: job.attemptsMade
+        },
+        "Worker job completed"
+      );
+    });
+
     worker.on("failed", (job, error) => {
       logger.error(
         {
@@ -89,13 +121,22 @@ export const createWorkers = (
         const parsed = ecommerceJobSchema.safeParse(job.data);
 
         if (parsed.success && parsed.data.name !== "dead-letter.record") {
-          void enqueueDeadLetter(producer, {
+          enqueueDeadLetter(producer, {
             tenantId: parsed.data.metadata.tenantId,
             originalQueue: worker.name,
             originalJobName: parsed.data.name,
             ...(job.id === undefined ? {} : { originalJobId: job.id }),
             reason: getErrorMessage(error),
             payload: parsed.data
+          }).catch((deadLetterError: unknown) => {
+            logger.fatal(
+              {
+                queueName: worker.name,
+                jobId: job.id,
+                error: deadLetterError
+              },
+              "Failed to enqueue dead-letter job"
+            );
           });
         }
       }

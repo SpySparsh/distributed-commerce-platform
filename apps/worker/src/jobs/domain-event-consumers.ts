@@ -1,10 +1,13 @@
 import { jobNames, type QueueProducer } from "@ecommerce/queue";
+import type { PrismaClient } from "@ecommerce/database";
 import type { DomainEvent } from "@ecommerce/events";
 import type { Logger } from "pino";
+import { handlePaymentCompletedOrderWorkflow } from "./order-payment-workflow.js";
 
 export interface DomainEventConsumerContext {
   readonly logger: Logger;
   readonly queues: QueueProducer;
+  readonly prisma: PrismaClient;
 }
 
 const enqueueAnalytics = (
@@ -63,6 +66,7 @@ export const consumeDomainEvent = async (
       return;
 
     case "PaymentCompleted":
+      await handlePaymentCompletedOrderWorkflow(context.prisma, event);
       await context.queues.enqueue({
         name: jobNames.trackAnalytics,
         metadata: {

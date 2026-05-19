@@ -61,3 +61,19 @@ export const requireRole =
       throw forbiddenError();
     }
   };
+
+export const getAuthenticatedTenantId = (request: FastifyRequest): string => {
+  if (request.user === undefined) {
+    throw invalidSessionError();
+  }
+
+  return request.user.tenantId;
+};
+
+export const getAuthenticatedUserId = (request: FastifyRequest): string => {
+  if (request.user === undefined) {
+    throw invalidSessionError();
+  }
+
+  return request.user.id;
+};

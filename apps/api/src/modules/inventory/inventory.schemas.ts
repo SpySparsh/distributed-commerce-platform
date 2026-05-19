@@ -3,7 +3,6 @@ import { z } from "zod";
 const uuidSchema = z.uuid();
 
 export const inventoryTenantQuerySchema = z.object({
-  tenantId: uuidSchema
 });
 
 export const inventoryVariantParamsSchema = z.object({
@@ -15,7 +14,6 @@ export const inventoryReservationParamsSchema = z.object({
 });
 
 export const reserveInventoryBodySchema = z.object({
-  tenantId: uuidSchema,
   variantId: uuidSchema,
   quantity: z.number().int().positive().max(500),
   cartItemId: uuidSchema.optional(),
@@ -24,19 +22,19 @@ export const reserveInventoryBodySchema = z.object({
 });
 
 export const reservationTenantBodySchema = z.object({
-  tenantId: uuidSchema
 });
 
 export const consumeReservationBodySchema = z.object({
-  tenantId: uuidSchema,
   orderItemId: uuidSchema.optional()
 });
 
 export const releaseExpiredReservationsBodySchema = z.object({
-  tenantId: uuidSchema.optional(),
   batchSize: z.number().int().min(1).max(1_000).default(100)
 });
 
-export type ReserveInventoryBody = z.infer<typeof reserveInventoryBodySchema>;
+export type ReserveInventoryRequestBody = z.infer<typeof reserveInventoryBodySchema>;
+export type ReserveInventoryBody = ReserveInventoryRequestBody & {
+  readonly tenantId: string;
+};
 export type ConsumeReservationBody = z.infer<typeof consumeReservationBodySchema>;
 export type ReleaseExpiredReservationsBody = z.infer<typeof releaseExpiredReservationsBodySchema>;

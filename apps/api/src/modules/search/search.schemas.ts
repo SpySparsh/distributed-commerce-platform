@@ -30,12 +30,10 @@ export const categorySearchQuerySchema = z.object({
 });
 
 export const indexProductBodySchema = z.object({
-  tenantId: uuidSchema,
   productId: uuidSchema
 });
 
 export const rebuildSearchBodySchema = z.object({
-  tenantId: uuidSchema,
   target: z.enum(["products", "categories", "all"]).default("all"),
   batchSize: z.number().int().min(50).max(2_000).default(500)
 });
@@ -43,5 +41,11 @@ export const rebuildSearchBodySchema = z.object({
 export type ProductSearchQuery = z.infer<typeof productSearchQuerySchema>;
 export type AutocompleteQuery = z.infer<typeof autocompleteQuerySchema>;
 export type CategorySearchQuery = z.infer<typeof categorySearchQuerySchema>;
-export type IndexProductBody = z.infer<typeof indexProductBodySchema>;
-export type RebuildSearchBody = z.infer<typeof rebuildSearchBodySchema>;
+export type IndexProductRequestBody = z.infer<typeof indexProductBodySchema>;
+export type IndexProductBody = IndexProductRequestBody & {
+  readonly tenantId: string;
+};
+export type RebuildSearchRequestBody = z.infer<typeof rebuildSearchBodySchema>;
+export type RebuildSearchBody = RebuildSearchRequestBody & {
+  readonly tenantId: string;
+};

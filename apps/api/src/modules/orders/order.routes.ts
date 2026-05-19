@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
+import { getAuthenticatedTenantId, getAuthenticatedUserId, requirePermission } from "../auth/auth.middleware.js";
+import { permissions } from "../auth/permissions.js";
 import type { OrderActor, OrderRepository } from "./order.repository.js";
 import {
   createOrderBodySchema,
@@ -30,13 +32,18 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     "/",
     {
       preHandler: [
+        requirePermission(permissions.ordersWrite),
         withRateLimit({ keyPrefix: "orders:create", maxRequests: 60 }),
         validateRequest({ body: createOrderBodySchema })
       ]
     },
     async (request, reply) => {
       const body = createOrderBodySchema.parse(request.body);
-      const order = await service.createOrder(body, getActor(request));
+      const order = await service.createOrder({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request),
+        userId: getAuthenticatedUserId(request)
+      }, getActor(request));
 
       await reply.status(201).send({
         ok: true,
@@ -51,6 +58,7 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     "/:orderId",
     {
       preHandler: [
+        requirePermission(permissions.ordersRead),
         withRateLimit({ keyPrefix: "orders:get", maxRequests: 120 }),
         validateRequest({
           params: orderParamsSchema,
@@ -60,8 +68,8 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     },
     async (request, reply) => {
       const params = orderParamsSchema.parse(request.params);
-      const query = orderTenantQuerySchema.parse(request.query);
-      const order = await service.getOrder(query.tenantId, params.orderId);
+      orderTenantQuerySchema.parse(request.query);
+      const order = await service.getOrder(getAuthenticatedTenantId(request), params.orderId);
 
       if (order === undefined) {
         await reply.status(404).send({
@@ -88,6 +96,7 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     "/:orderId/events",
     {
       preHandler: [
+        requirePermission(permissions.ordersRead),
         withRateLimit({ keyPrefix: "orders:events", maxRequests: 120 }),
         validateRequest({
           params: orderParamsSchema,
@@ -97,8 +106,8 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     },
     async (request) => {
       const params = orderParamsSchema.parse(request.params);
-      const query = orderTenantQuerySchema.parse(request.query);
-      const events = await service.listEvents(query.tenantId, params.orderId);
+      orderTenantQuerySchema.parse(request.query);
+      const events = await service.listEvents(getAuthenticatedTenantId(request), params.orderId);
 
       return {
         ok: true,
@@ -113,6 +122,7 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     "/:orderId/transitions",
     {
       preHandler: [
+        requirePermission(permissions.ordersWrite),
         withRateLimit({ keyPrefix: "orders:transition", maxRequests: 60 }),
         validateRequest({
           params: orderParamsSchema,
@@ -123,7 +133,10 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     async (request) => {
       const params = orderParamsSchema.parse(request.params);
       const body = transitionOrderBodySchema.parse(request.body);
-      const order = await service.transitionOrder(params.orderId, body, getActor(request));
+      const order = await service.transitionOrder(params.orderId, {
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      }, getActor(request));
 
       return {
         ok: true,
@@ -138,6 +151,7 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     "/:orderId/invoice",
     {
       preHandler: [
+        requirePermission(permissions.ordersWrite),
         withRateLimit({ keyPrefix: "orders:invoice", maxRequests: 30 }),
         validateRequest({
           params: orderParamsSchema,
@@ -147,8 +161,8 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
     },
     async (request) => {
       const params = orderParamsSchema.parse(request.params);
-      const body = invoiceOrderBodySchema.parse(request.body);
-      const result = await service.requestInvoice(body.tenantId, params.orderId, getActor(request));
+      invoiceOrderBodySchema.parse(request.body);
+      const result = await service.requestInvoice(getAuthenticatedTenantId(request), params.orderId, getActor(request));
 
       return {
         ok: true,

@@ -8,10 +8,12 @@ import { orderRoutes } from "../modules/orders/order.routes.js";
 import { paymentRoutes } from "../modules/payments/payment.routes.js";
 import { productRoutes } from "../modules/products/product.routes.js";
 import { searchRoutes } from "../modules/search/search.routes.js";
+import { createDomainEventPublisher } from "../modules/events/domain-event-publisher.js";
 import { createAppRepositories } from "../repositories.js";
 
 export const registerRoutes = async (app: FastifyInstance): Promise<void> => {
   const repositories = createAppRepositories(app.prisma);
+  const domainEventPublisher = createDomainEventPublisher(repositories.eventLog, app.queues);
 
   await app.register(authRoutes, { prefix: "/auth", repository: repositories.auth });
   await app.register(eventRoutes, { prefix: "/events", repository: repositories.eventLog });
@@ -23,7 +25,11 @@ export const registerRoutes = async (app: FastifyInstance): Promise<void> => {
   await app.register(productRoutes, { prefix: "/products", repository: repositories.product });
   await app.register(inventoryRoutes, { prefix: "/inventory", repository: repositories.inventory });
   await app.register(orderRoutes, { prefix: "/orders", repository: repositories.order });
-  await app.register(paymentRoutes, { prefix: "/payments", repository: repositories.payment });
+  await app.register(paymentRoutes, {
+    prefix: "/payments",
+    repository: repositories.payment,
+    eventPublisher: domainEventPublisher
+  });
   await app.register(searchRoutes, { prefix: "/search" });
   await app.register(healthRoutes, { prefix: "/health" });
 };

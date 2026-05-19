@@ -26,6 +26,17 @@ interface OrderItemRow {
   readonly currency: string;
 }
 
+interface CartItemWithReservationsRow {
+  readonly id: string;
+  readonly productId: string;
+  readonly variantId: string;
+  readonly quantity: number;
+  readonly reservations: readonly {
+    readonly id: string;
+    readonly quantity: number;
+  }[];
+}
+
 interface OrderRow {
   readonly id: string;
   readonly tenantId: string;
@@ -46,6 +57,7 @@ interface OrderRow {
   readonly invoiceUrl: string | null;
   readonly placedAt: Date | null;
   readonly invoicedAt: Date | null;
+  readonly version: number;
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly items: readonly OrderItemRow[];
@@ -79,6 +91,13 @@ interface OrderTransactionClient {
     create(args: unknown): Promise<OrderRow>;
     findFirst(args: unknown): Promise<OrderRow | null>;
     update(args: unknown): Promise<OrderRow>;
+    updateMany(args: unknown): Promise<{ readonly count: number }>;
+  };
+  readonly cart: {
+    findFirst(args: unknown): Promise<{ readonly id: string } | null>;
+  };
+  readonly cartItem: {
+    findMany(args: unknown): Promise<CartItemWithReservationsRow[]>;
   };
   readonly orderEvent: {
     create(args: unknown): Promise<OrderEventRow>;
@@ -88,6 +107,7 @@ interface OrderTransactionClient {
     findFirst(args: unknown): Promise<PaymentRow | null>;
   };
   readonly inventoryReservation: {
+    findMany(args: unknown): Promise<Array<{ readonly id: string; readonly quantity: number }>>;
     updateMany(args: unknown): Promise<{ readonly count: number }>;
   };
   readonly auditLog: {
@@ -109,6 +129,12 @@ const toJsonObject = (value: Record<string, unknown>): Prisma.InputJsonObject =>
   value as Prisma.InputJsonObject;
 
 const createOrderNumber = (): string => `ORD-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+
+const cartItemKey = (productId: string, variantId: string): string => `${productId}:${variantId}`;
+
+const sumReservationQuantity = (
+  reservations: readonly { readonly quantity: number }[]
+): number => reservations.reduce((total, reservation) => total + reservation.quantity, 0);
 
 const toOrderDto = (row: OrderRow): OrderDto => ({
   id: row.id,
@@ -187,6 +213,72 @@ export class PrismaOrderRepository implements OrderRepository {
 
   async createOrder(input: CreateOrderBody, actor: OrderActor): Promise<OrderDto> {
     return this.prisma.$transaction(async (tx) => {
+      if (input.cartId === undefined) {
+        throw orderInventoryNotReservedError();
+      }
+
+      const cart = await tx.cart.findFirst({
+        where: {
+          id: input.cartId,
+          tenantId: input.tenantId,
+          status: "active",
+          deletedAt: null,
+          ...(input.userId === undefined ? {} : { userId: input.userId })
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (cart === null) {
+        throw orderInventoryNotReservedError();
+      }
+
+      const now = new Date();
+      const cartItems = await tx.cartItem.findMany({
+        where: {
+          tenantId: input.tenantId,
+          cartId: input.cartId,
+          deletedAt: null,
+          variantId: {
+            in: input.items.map((item) => item.variantId)
+          }
+        },
+        include: {
+          reservations: {
+            where: {
+              tenantId: input.tenantId,
+              status: "active",
+              orderItemId: null,
+              expiresAt: {
+                gt: now
+              },
+              deletedAt: null
+            },
+            orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
+            select: {
+              id: true,
+              quantity: true
+            }
+          }
+        }
+      });
+      const cartItemsByProductVariant = new Map(
+        cartItems.map((item) => [cartItemKey(item.productId, item.variantId), item])
+      );
+
+      for (const item of input.items) {
+        const cartItem = cartItemsByProductVariant.get(cartItemKey(item.productId, item.variantId));
+
+        if (
+          cartItem === undefined ||
+          cartItem.quantity !== item.quantity ||
+          sumReservationQuantity(cartItem.reservations) !== item.quantity
+        ) {
+          throw orderInventoryNotReservedError();
+        }
+      }
+
       const order = await tx.order.create({
         data: {
           tenantId: input.tenantId,
@@ -218,6 +310,33 @@ export class PrismaOrderRepository implements OrderRepository {
         },
         include: orderInclude
       });
+
+      for (const orderItem of order.items) {
+        const cartItem = cartItemsByProductVariant.get(cartItemKey(orderItem.productId, orderItem.variantId));
+
+        if (cartItem === undefined) {
+          throw orderInventoryNotReservedError();
+        }
+
+        const linked = await tx.inventoryReservation.updateMany({
+          where: {
+            id: {
+              in: cartItem.reservations.map((reservation) => reservation.id)
+            },
+            tenantId: input.tenantId,
+            cartItemId: cartItem.id,
+            orderItemId: null,
+            status: "active"
+          },
+          data: {
+            orderItemId: orderItem.id
+          }
+        });
+
+        if (linked.count !== cartItem.reservations.length) {
+          throw orderInventoryNotReservedError();
+        }
+      }
 
       await tx.orderEvent.create({
         data: eventData(input.tenantId, order.id, "created", actor, {
@@ -299,16 +418,25 @@ export class PrismaOrderRepository implements OrderRepository {
       }
 
       const now = new Date();
-      const updated = await tx.order.update({
+      const transitioned = await tx.order.updateMany({
         where: {
-          id: input.orderId
+          id: input.orderId,
+          tenantId: input.tenantId,
+          status: order.status,
+          version: order.version
         },
         data: {
           status: input.nextStatus,
+          version: {
+            increment: 1
+          },
           ...(input.nextStatus === "paid" ? { placedAt: now } : {})
-        },
-        include: orderInclude
+        }
       });
+
+      if (transitioned.count !== 1) {
+        throw orderNotFoundError();
+      }
 
       await tx.orderEvent.create({
         data: eventData(input.tenantId, input.orderId, toOrderEventType(input.nextStatus), input.actor, {
@@ -323,6 +451,23 @@ export class PrismaOrderRepository implements OrderRepository {
 
       if (input.nextStatus === "paid") {
         for (const item of order.items) {
+          const activeReservations = await tx.inventoryReservation.findMany({
+            where: {
+              tenantId: input.tenantId,
+              orderItemId: item.id,
+              status: "active",
+              deletedAt: null
+            },
+            select: {
+              id: true,
+              quantity: true
+            }
+          });
+
+          if (sumReservationQuantity(activeReservations) !== item.quantity) {
+            throw orderInventoryNotReservedError();
+          }
+
           const consumedItems = await tx.$executeRaw`
             UPDATE "InventoryItem"
             SET "quantity" = GREATEST("quantity" - ${item.quantity}, 0),
@@ -337,20 +482,26 @@ export class PrismaOrderRepository implements OrderRepository {
           if (consumedItems !== 1) {
             throw orderInventoryNotReservedError();
           }
-        }
-        await tx.inventoryReservation.updateMany({
-          where: {
-            tenantId: input.tenantId,
-            orderItemId: {
-              in: order.items.map((item) => item.id)
+
+          const consumedReservations = await tx.inventoryReservation.updateMany({
+            where: {
+              id: {
+                in: activeReservations.map((reservation) => reservation.id)
+              },
+              tenantId: input.tenantId,
+              orderItemId: item.id,
+              status: "active"
             },
-            status: "active"
-          },
-          data: {
-            status: "consumed",
-            consumedAt: now
+            data: {
+              status: "consumed",
+              consumedAt: now
+            }
+          });
+
+          if (consumedReservations.count !== activeReservations.length) {
+            throw orderInventoryNotReservedError();
           }
-        });
+        }
         await tx.orderEvent.create({
           data: eventData(input.tenantId, input.orderId, "inventory_consumed", input.actor, {
             metadata: {
@@ -380,6 +531,19 @@ export class PrismaOrderRepository implements OrderRepository {
           }
         }
       });
+
+      const updated = await tx.order.findFirst({
+        where: {
+          id: input.orderId,
+          tenantId: input.tenantId,
+          deletedAt: null
+        },
+        include: orderInclude
+      });
+
+      if (updated === null) {
+        throw orderNotFoundError();
+      }
 
       return toOrderDto(updated);
     });
