@@ -7,10 +7,10 @@ export interface HealthStatus {
 }
 
 export interface ReadinessStatus {
-  readonly status: "ready";
+  readonly status: "ready" | "not_ready";
   readonly dependencies: {
-    readonly redis: "configured";
-    readonly database: "configured";
+    readonly redis: "up" | "down";
+    readonly database: "up" | "down";
   };
 }
 
@@ -20,10 +20,23 @@ export const getHealthStatus = (): HealthStatus => ({
   timestamp: new Date().toISOString()
 });
 
-export const getReadinessStatus = (app: FastifyInstance): ReadinessStatus => ({
-  status: "ready",
-  dependencies: {
-    redis: app.config.REDIS_URL.length > 0 ? "configured" : "configured",
-    database: app.config.DATABASE_URL.length > 0 ? "configured" : "configured"
-  }
-});
+export const getReadinessStatus = async (app: FastifyInstance): Promise<ReadinessStatus> => {
+  const [redis, database] = await Promise.all([
+    app.redis
+      .ping()
+      .then(() => "up" as const)
+      .catch(() => "down" as const),
+    app.prisma
+      .$queryRaw`SELECT 1`
+      .then(() => "up" as const)
+      .catch(() => "down" as const)
+  ]);
+
+  return {
+    status: redis === "up" && database === "up" ? "ready" : "not_ready",
+    dependencies: {
+      redis,
+      database
+    }
+  };
+};

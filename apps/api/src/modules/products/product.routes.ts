@@ -5,11 +5,15 @@ import {
   productListQuerySchema,
   productParamsSchema
 } from "./product.schemas.js";
-import { UnconfiguredProductRepository } from "./product.repository.js";
+import type { ProductRepository } from "./product.repository.js";
 import { createProductService } from "./product.service.js";
 import type { RedisCacheClient } from "@ecommerce/cache";
 
-export const productRoutes: FastifyPluginAsync = async (app) => {
+export interface ProductRouteOptions {
+  readonly repository: ProductRepository;
+}
+
+export const productRoutes: FastifyPluginAsync<ProductRouteOptions> = async (app, options) => {
   const redisCacheClient: RedisCacheClient = {
     get: (key) => app.redis.get(key),
     set: (key, value, mode, ttl, condition) =>
@@ -27,7 +31,7 @@ export const productRoutes: FastifyPluginAsync = async (app) => {
     hset: (key, values) => app.redis.hset(key, values),
     hdel: (key, ...fields) => app.redis.hdel(key, ...fields)
   };
-  const productService = createProductService(new UnconfiguredProductRepository(), redisCacheClient);
+  const productService = createProductService(options.repository, redisCacheClient);
 
   app.get(
     "/",

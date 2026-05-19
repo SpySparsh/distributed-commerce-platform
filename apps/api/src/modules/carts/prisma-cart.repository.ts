@@ -1,3 +1,4 @@
+import type { PrismaClient } from "@ecommerce/database";
 import type { CartRepository, CreateCartInput, PersistCartInput } from "./cart.repository.js";
 import type { CartDto, CartItemDto } from "./cart.types.js";
 
@@ -20,14 +21,6 @@ interface CartRow {
   readonly updatedAt: Date;
   readonly expiresAt: Date | null;
   readonly items: readonly CartItemRow[];
-}
-
-interface CartPrismaClient {
-  readonly cart: {
-    create(args: unknown): Promise<CartRow>;
-    findFirst(args: unknown): Promise<CartRow | null>;
-    update(args: unknown): Promise<CartRow>;
-  };
 }
 
 const cartInclude = {
@@ -60,7 +53,7 @@ const toCartDto = (cart: CartRow): CartDto => ({
 });
 
 export class PrismaCartRepository implements CartRepository {
-  constructor(private readonly prisma: CartPrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async createCart(input: CreateCartInput): Promise<CartDto> {
     const cart = await this.prisma.cart.create({

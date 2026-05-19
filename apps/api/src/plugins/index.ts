@@ -3,6 +3,7 @@ import type { ApiEnv } from "../env.js";
 import { configPlugin } from "./config.js";
 import { cookiePlugin } from "./cookie.js";
 import { corsPlugin } from "./cors.js";
+import { databasePlugin } from "./database.js";
 import { queuePlugin } from "./queue.js";
 import { rateLimitPlugin } from "./rate-limit.js";
 import { redisPlugin } from "./redis.js";
@@ -14,6 +15,7 @@ import { sentryPlugin } from "./sentry.js";
 export const registerPlugins = async (app: FastifyInstance, config: ApiEnv): Promise<void> => {
   await app.register(configPlugin, { config });
   await app.register(sentryPlugin);
+  await app.register(databasePlugin);
   await app.register(cookiePlugin);
   await app.register(requestContextPlugin);
   await app.register(securityHeadersPlugin);

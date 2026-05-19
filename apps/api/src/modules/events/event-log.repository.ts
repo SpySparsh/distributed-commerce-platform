@@ -22,23 +22,3 @@ export interface EventLogRepository {
   markConsumed(eventId: string): Promise<void>;
   markFailed(eventId: string, reason: string): Promise<void>;
 }
-
-export class UnconfiguredEventLogRepository implements EventLogRepository {
-  async append(event: DomainEvent): Promise<DomainEventLogRecord> {
-    return {
-      id: event.metadata.eventId,
-      tenantId: event.metadata.tenantId,
-      name: event.name,
-      aggregateType: event.metadata.aggregateType,
-      aggregateId: event.metadata.aggregateId,
-      status: "pending",
-      occurredAt: event.metadata.occurredAt
-    };
-  }
-
-  async markPublished(): Promise<void> {}
-
-  async markConsumed(): Promise<void> {}
-
-  async markFailed(): Promise<void> {}
-}

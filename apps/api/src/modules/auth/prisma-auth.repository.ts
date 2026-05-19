@@ -1,3 +1,4 @@
+import type { PrismaClient } from "@ecommerce/database";
 import type {
   AuthPermission,
   AuthRole,
@@ -36,19 +37,6 @@ interface PrismaSessionRecord {
   readonly deviceName: string | null;
   readonly expiresAt: Date;
   readonly revokedAt: Date | null;
-}
-
-interface AuthPrismaClient {
-  readonly user: {
-    findFirst(args: unknown): Promise<PrismaUserRecord | null>;
-    create(args: unknown): Promise<PrismaUserRecord>;
-  };
-  readonly session: {
-    create(args: unknown): Promise<PrismaSessionRecord>;
-    findUnique(args: unknown): Promise<PrismaSessionRecord | null>;
-    update(args: unknown): Promise<PrismaSessionRecord>;
-    updateMany(args: unknown): Promise<{ readonly count: number }>;
-  };
 }
 
 const userInclude = {
@@ -103,7 +91,7 @@ const toSession = (session: PrismaSessionRecord): AuthSession => ({
 });
 
 export class PrismaAuthRepository implements AuthRepository {
-  constructor(private readonly prisma: AuthPrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async findUserByEmail(tenantId: string, email: string): Promise<AuthUserRecord | undefined> {
     const user = await this.prisma.user.findFirst({

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
 import { createRedisCacheClient } from "./redis-cache-client.js";
-import { UnconfiguredInventoryRepository } from "./inventory.repository.js";
+import type { InventoryRepository } from "./inventory.repository.js";
 import {
   consumeReservationBodySchema,
   inventoryReservationParamsSchema,
@@ -13,9 +13,13 @@ import {
 } from "./inventory.schemas.js";
 import { createInventoryService } from "./inventory.service.js";
 
-export const inventoryRoutes: FastifyPluginAsync = async (app) => {
+export interface InventoryRouteOptions {
+  readonly repository: InventoryRepository;
+}
+
+export const inventoryRoutes: FastifyPluginAsync<InventoryRouteOptions> = async (app, options) => {
   const service = createInventoryService(
-    new UnconfiguredInventoryRepository(),
+    options.repository,
     createRedisCacheClient(app)
   );
 

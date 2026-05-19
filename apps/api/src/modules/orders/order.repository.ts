@@ -24,25 +24,3 @@ export interface OrderRepository {
   listOrderEvents(tenantId: string, orderId: string): Promise<readonly OrderEventDto[]>;
   markInvoiceRequested(tenantId: string, orderId: string, actor: OrderActor): Promise<OrderDto>;
 }
-
-export class UnconfiguredOrderRepository implements OrderRepository {
-  async createOrder(): Promise<OrderDto> {
-    throw new Error("Order repository is not configured");
-  }
-
-  async findOrder(): Promise<OrderDto | undefined> {
-    return undefined;
-  }
-
-  async transitionOrder(): Promise<OrderDto> {
-    throw new Error("Order repository is not configured");
-  }
-
-  async listOrderEvents(): Promise<readonly OrderEventDto[]> {
-    return [];
-  }
-
-  async markInvoiceRequested(): Promise<OrderDto> {
-    throw new Error("Order repository is not configured");
-  }
-}

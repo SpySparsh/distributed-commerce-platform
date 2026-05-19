@@ -20,29 +20,3 @@ export interface CartRepository {
   persistCart(input: PersistCartInput): Promise<void>;
   markCartExpired(tenantId: string, cartId: string): Promise<void>;
 }
-
-export class UnconfiguredCartRepository implements CartRepository {
-  async createCart(): Promise<CartDto> {
-    throw new Error("CartRepository is not configured with Prisma yet.");
-  }
-
-  async findCart(): Promise<CartDto | undefined> {
-    throw new Error("CartRepository is not configured with Prisma yet.");
-  }
-
-  async findActiveUserCart(): Promise<CartDto | undefined> {
-    throw new Error("CartRepository is not configured with Prisma yet.");
-  }
-
-  async findActiveGuestCart(): Promise<CartDto | undefined> {
-    throw new Error("CartRepository is not configured with Prisma yet.");
-  }
-
-  async persistCart(): Promise<void> {
-    throw new Error("CartRepository is not configured with Prisma yet.");
-  }
-
-  async markCartExpired(): Promise<void> {
-    throw new Error("CartRepository is not configured with Prisma yet.");
-  }
-}

@@ -8,8 +8,8 @@ import {
   removeCartItemParamsSchema,
   upsertCartItemBodySchema
 } from "./cart.schemas.js";
-import { UnconfiguredCartRepository } from "./cart.repository.js";
-import { UnconfiguredCartInventoryReader } from "./inventory.reader.js";
+import type { CartRepository } from "./cart.repository.js";
+import type { CartInventoryReader } from "./inventory.reader.js";
 import { createCartService } from "./cart.service.js";
 
 const createRedisCacheClient = (app: Parameters<FastifyPluginAsync>[0]): RedisCacheClient => ({
@@ -30,10 +30,15 @@ const createRedisCacheClient = (app: Parameters<FastifyPluginAsync>[0]): RedisCa
   hdel: (key, ...fields) => app.redis.hdel(key, ...fields)
 });
 
-export const cartRoutes: FastifyPluginAsync = async (app) => {
+export interface CartRouteOptions {
+  readonly repository: CartRepository;
+  readonly inventory: CartInventoryReader;
+}
+
+export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, options) => {
   const cartService = createCartService(
-    new UnconfiguredCartRepository(),
-    new UnconfiguredCartInventoryReader(),
+    options.repository,
+    options.inventory,
     createRedisCacheClient(app)
   );
 

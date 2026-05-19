@@ -1,3 +1,4 @@
+import type { Prisma, PrismaClient } from "@ecommerce/database";
 import { randomUUID } from "node:crypto";
 import {
   orderInventoryNotReservedError,
@@ -94,22 +95,18 @@ interface OrderTransactionClient {
   };
 }
 
-interface OrderPrismaClient extends OrderTransactionClient {
-  readonly $transaction: <T>(
-    callback: (tx: OrderTransactionClient) => Promise<T>,
-    options?: unknown
-  ) => Promise<T>;
-}
-
 const orderInclude = {
   items: {
     where: { deletedAt: null },
     orderBy: { createdAt: "asc" }
   }
-} as const;
+} satisfies Prisma.OrderInclude;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+
+const toJsonObject = (value: Record<string, unknown>): Prisma.InputJsonObject =>
+  value as Prisma.InputJsonObject;
 
 const createOrderNumber = (): string => `ORD-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 
@@ -173,7 +170,7 @@ const eventData = (
     readonly reason?: string;
     readonly metadata?: Record<string, unknown>;
   } = {}
-): Record<string, unknown> => ({
+): Prisma.OrderEventUncheckedCreateInput => ({
   tenantId,
   orderId,
   type,
@@ -182,11 +179,11 @@ const eventData = (
   ...(actor.userId === undefined ? {} : { actorUserId: actor.userId }),
   ...(actor.requestId === undefined ? {} : { requestId: actor.requestId }),
   ...(input.reason === undefined ? {} : { reason: input.reason }),
-  metadata: input.metadata ?? {}
+  metadata: toJsonObject(input.metadata ?? {})
 });
 
 export class PrismaOrderRepository implements OrderRepository {
-  constructor(private readonly prisma: OrderPrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async createOrder(input: CreateOrderBody, actor: OrderActor): Promise<OrderDto> {
     return this.prisma.$transaction(async (tx) => {
@@ -201,10 +198,10 @@ export class PrismaOrderRepository implements OrderRepository {
           discountAmount: input.discountAmount,
           totalAmount: input.totalAmount,
           currency: input.currency,
-          shippingAddress: input.shippingAddress,
+          shippingAddress: toJsonObject(input.shippingAddress),
           ...(input.userId === undefined ? {} : { userId: input.userId }),
           ...(input.cartId === undefined ? {} : { cartId: input.cartId }),
-          ...(input.billingAddress === undefined ? {} : { billingAddress: input.billingAddress }),
+          ...(input.billingAddress === undefined ? {} : { billingAddress: toJsonObject(input.billingAddress) }),
           items: {
             create: input.items.map((item) => ({
               tenantId: input.tenantId,

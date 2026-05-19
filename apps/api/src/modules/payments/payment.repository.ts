@@ -47,27 +47,3 @@ export interface PaymentRepository {
   applyWebhook(input: ApplyPaymentWebhookInput): Promise<PaymentDto | undefined>;
   markPaymentRetryScheduled(tenantId: string, paymentId: string, nextRetryAt: Date): Promise<void>;
 }
-
-export class UnconfiguredPaymentRepository implements PaymentRepository {
-  async createPayment(): Promise<PaymentDto> {
-    throw new Error("Payment repository is not configured");
-  }
-
-  async findPaymentById(): Promise<PaymentDto | undefined> {
-    return undefined;
-  }
-
-  async updateProviderPayment(): Promise<PaymentDto> {
-    throw new Error("Payment repository is not configured");
-  }
-
-  async recordWebhook(): Promise<PaymentWebhookEventDto> {
-    throw new Error("Payment repository is not configured");
-  }
-
-  async applyWebhook(): Promise<PaymentDto | undefined> {
-    return undefined;
-  }
-
-  async markPaymentRetryScheduled(): Promise<void> {}
-}

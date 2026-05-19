@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
-import { UnconfiguredOrderRepository } from "./order.repository.js";
-import type { OrderActor } from "./order.repository.js";
+import type { OrderActor, OrderRepository } from "./order.repository.js";
 import {
   createOrderBodySchema,
   invoiceOrderBodySchema,
@@ -20,8 +19,12 @@ const getActor = (request: FastifyRequest): OrderActor => ({
     : { userAgent: String(request.headers["user-agent"]) })
 });
 
-export const orderRoutes: FastifyPluginAsync = async (app) => {
-  const service = createOrderService(new UnconfiguredOrderRepository(), app.queues);
+export interface OrderRouteOptions {
+  readonly repository: OrderRepository;
+}
+
+export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, options) => {
+  const service = createOrderService(options.repository, app.queues);
 
   app.post(
     "/",

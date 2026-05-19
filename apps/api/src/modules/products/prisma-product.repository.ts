@@ -1,3 +1,4 @@
+import type { Prisma, PrismaClient } from "@ecommerce/database";
 import type { ProductListQuery } from "./product.schemas.js";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import type {
@@ -59,16 +60,6 @@ interface CategoryRow {
   readonly position: number;
 }
 
-interface ProductPrismaClient {
-  readonly product: {
-    findMany(args: unknown): Promise<ProductRow[]>;
-    findFirst(args: unknown): Promise<ProductRow | null>;
-  };
-  readonly category: {
-    findMany(args: unknown): Promise<CategoryRow[]>;
-  };
-}
-
 const productSelect = {
   id: true,
   tenantId: true,
@@ -111,7 +102,7 @@ const productSelect = {
       }
     }
   }
-} as const;
+} satisfies Prisma.ProductSelect;
 
 const toImageDto = (image: ProductImageRow): ProductImageDto => ({
   id: image.id,
@@ -194,7 +185,7 @@ const buildCategoryTree = (rows: readonly CategoryRow[]): readonly CategoryNodeD
   return roots;
 };
 
-const buildOrderBy = (sort: ProductListQuery["sort"]): unknown[] => {
+const buildOrderBy = (sort: ProductListQuery["sort"]): Prisma.ProductOrderByWithRelationInput[] => {
   switch (sort) {
     case "oldest":
       return [{ createdAt: "asc" }, { id: "asc" }];
@@ -214,7 +205,7 @@ const buildOrderBy = (sort: ProductListQuery["sort"]): unknown[] => {
 };
 
 export class PrismaProductRepository implements ProductRepository {
-  constructor(private readonly prisma: ProductPrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async listProducts(query: ProductListQuery): Promise<CursorPage<ProductListItemDto>> {
     const cursor = decodeCursor(query.cursor);

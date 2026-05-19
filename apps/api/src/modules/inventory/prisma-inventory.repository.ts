@@ -1,3 +1,4 @@
+import type { PrismaClient } from "@ecommerce/database";
 import {
   insufficientInventoryError,
   inventoryReservationConflictError,
@@ -61,13 +62,6 @@ interface InventoryTransactionClient {
   };
 }
 
-interface InventoryPrismaClient extends InventoryTransactionClient {
-  readonly $transaction: <T>(
-    callback: (tx: InventoryTransactionClient) => Promise<T>,
-    options?: unknown
-  ) => Promise<T>;
-}
-
 const toAvailabilityDto = (row: InventoryItemRow): InventoryAvailabilityDto => ({
   tenantId: row.tenantId,
   variantId: row.variantId,
@@ -96,7 +90,7 @@ const toReservationDto = (row: InventoryReservationRow): InventoryReservationDto
 });
 
 export class PrismaInventoryRepository implements InventoryRepository {
-  constructor(private readonly prisma: InventoryPrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async getAvailability(tenantId: string, variantId: string): Promise<InventoryAvailabilityDto | undefined> {
     const item = await this.prisma.inventoryItem.findFirst({

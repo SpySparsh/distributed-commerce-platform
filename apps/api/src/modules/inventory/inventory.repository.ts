@@ -34,28 +34,3 @@ export interface InventoryRepository {
     input: ReleaseExpiredInventoryReservationsInput
   ): Promise<InventoryReservationCleanupResult>;
 }
-
-export class UnconfiguredInventoryRepository implements InventoryRepository {
-  async getAvailability(): Promise<InventoryAvailabilityDto | undefined> {
-    return undefined;
-  }
-
-  async createReservation(): Promise<InventoryReservationDto> {
-    throw new Error("Inventory repository is not configured");
-  }
-
-  async releaseReservation(): Promise<InventoryReservationDto> {
-    throw new Error("Inventory repository is not configured");
-  }
-
-  async consumeReservation(): Promise<InventoryReservationDto> {
-    throw new Error("Inventory repository is not configured");
-  }
-
-  async releaseExpiredReservations(): Promise<InventoryReservationCleanupResult> {
-    return {
-      scanned: 0,
-      released: 0
-    };
-  }
-}

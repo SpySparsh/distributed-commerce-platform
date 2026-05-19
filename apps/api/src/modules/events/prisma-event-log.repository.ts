@@ -1,3 +1,4 @@
+import type { PrismaClient } from "@ecommerce/database";
 import type { DomainEvent } from "@ecommerce/events";
 import type {
   DomainEventLogRecord,
@@ -19,13 +20,6 @@ interface DomainEventLogRow {
   readonly failureReason: string | null;
 }
 
-interface EventLogPrismaClient {
-  readonly domainEventLog: {
-    create(args: unknown): Promise<DomainEventLogRow>;
-    update(args: unknown): Promise<DomainEventLogRow>;
-  };
-}
-
 const toLogRecord = (row: DomainEventLogRow): DomainEventLogRecord => ({
   id: row.id,
   tenantId: row.tenantId,
@@ -41,7 +35,7 @@ const toLogRecord = (row: DomainEventLogRow): DomainEventLogRecord => ({
 });
 
 export class PrismaEventLogRepository implements EventLogRepository {
-  constructor(private readonly prisma: EventLogPrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async append(event: DomainEvent): Promise<DomainEventLogRecord> {
     const row = await this.prisma.domainEventLog.create({

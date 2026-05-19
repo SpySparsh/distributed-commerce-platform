@@ -1,3 +1,4 @@
+import type { Prisma, PrismaClient } from "@ecommerce/database";
 import { paymentNotFoundError } from "./payment.errors.js";
 import type {
   ApplyPaymentWebhookInput,
@@ -18,7 +19,7 @@ interface PaymentRow {
   readonly id: string;
   readonly tenantId: string;
   readonly orderId: string;
-  readonly provider: PaymentProvider;
+  readonly provider: string;
   readonly status: PaymentStatus;
   readonly amount: { toString(): string };
   readonly currency: string;
@@ -62,21 +63,28 @@ interface PaymentTransactionClient {
   };
 }
 
-interface PaymentPrismaClient extends PaymentTransactionClient {
-  readonly $transaction: <T>(
-    callback: (tx: PaymentTransactionClient) => Promise<T>,
-    options?: unknown
-  ) => Promise<T>;
-}
-
 const toMetadata = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+
+const toJsonObject = (value: Record<string, unknown>): Prisma.InputJsonObject =>
+  value as Prisma.InputJsonObject;
+
+const toSupportedPaymentProvider = (provider: string): PaymentProvider => {
+  if (provider === "stripe" || provider === "razorpay") {
+    return provider;
+  }
+
+  throw Object.assign(new Error(`Unsupported payment provider: ${provider}`), {
+    code: "UNSUPPORTED_PAYMENT_PROVIDER",
+    statusCode: 500
+  });
+};
 
 const toPaymentDto = (row: PaymentRow): PaymentDto => ({
   id: row.id,
   tenantId: row.tenantId,
   orderId: row.orderId,
-  provider: row.provider,
+  provider: toSupportedPaymentProvider(row.provider),
   status: row.status,
   amount: row.amount.toString(),
   currency: row.currency,
@@ -134,7 +142,7 @@ const orderStatusForPayment = (status: PaymentStatus): "paid" | "pending" | "can
 };
 
 export class PrismaPaymentRepository implements PaymentRepository {
-  constructor(private readonly prisma: PaymentPrismaClient) {}
+  constructor(private readonly prisma: PrismaClient) {}
 
   async createPayment(input: CreatePaymentInput): Promise<PaymentDto> {
     const existing = await this.prisma.payment.findFirst({
@@ -216,7 +224,7 @@ export class PrismaPaymentRepository implements PaymentRepository {
         provider: input.webhook.provider,
         providerEventId: input.webhook.providerEventId,
         eventType: input.webhook.eventType,
-        payload: input.webhook.payload
+        payload: toJsonObject(input.webhook.payload)
       }
     });
 
@@ -242,7 +250,9 @@ export class PrismaPaymentRepository implements PaymentRepository {
         where: {
           tenantId: input.tenantId,
           provider: input.webhook.provider,
-          providerPaymentId: input.webhook.providerPaymentId,
+          ...(input.webhook.providerPaymentId === undefined
+            ? {}
+            : { providerPaymentId: input.webhook.providerPaymentId }),
           deletedAt: null
         }
       });

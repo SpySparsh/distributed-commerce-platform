@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
-import { UnconfiguredPaymentRepository } from "./payment.repository.js";
+import type { PaymentRepository } from "./payment.repository.js";
 import {
   initiatePaymentBodySchema,
   paymentParamsSchema,
@@ -19,9 +19,13 @@ const getRawBody = (body: unknown): string =>
     ? body.toString()
     : JSON.stringify(body);
 
-export const paymentRoutes: FastifyPluginAsync = async (app) => {
+export interface PaymentRouteOptions {
+  readonly repository: PaymentRepository;
+}
+
+export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app, options) => {
   const service = createPaymentService(
-    new UnconfiguredPaymentRepository(),
+    options.repository,
     app.queues,
     app.config
   );

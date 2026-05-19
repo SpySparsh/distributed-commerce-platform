@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
-import { UnconfiguredAuthRepository } from "./auth.repository.js";
+import type { AuthRepository } from "./auth.repository.js";
 import { createAuthService } from "./auth.service.js";
 import { clearAuthCookies, refreshCookieName, setAuthCookies } from "./auth.cookies.js";
 import { loginBodySchema, refreshBodySchema, registerBodySchema } from "./auth.schemas.js";
@@ -15,8 +15,12 @@ const getDeviceContext = (request: FastifyRequest): RequestDeviceContext => {
   };
 };
 
-export const authRoutes: FastifyPluginAsync = async (app) => {
-  const authService = createAuthService(app.config, new UnconfiguredAuthRepository());
+export interface AuthRouteOptions {
+  readonly repository: AuthRepository;
+}
+
+export const authRoutes: FastifyPluginAsync<AuthRouteOptions> = async (app, options) => {
+  const authService = createAuthService(app.config, options.repository);
 
   app.post("/register", {
     preHandler: [

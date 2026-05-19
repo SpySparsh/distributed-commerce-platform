@@ -1,12 +1,16 @@
 import type { FastifyPluginAsync } from "fastify";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
 import { createDomainEventPublisher } from "./domain-event-publisher.js";
-import { UnconfiguredEventLogRepository } from "./event-log.repository.js";
+import type { EventLogRepository } from "./event-log.repository.js";
 import { publishDomainEventBodySchema } from "./event.schemas.js";
 
-export const eventRoutes: FastifyPluginAsync = async (app) => {
+export interface EventRouteOptions {
+  readonly repository: EventLogRepository;
+}
+
+export const eventRoutes: FastifyPluginAsync<EventRouteOptions> = async (app, options) => {
   const publisher = createDomainEventPublisher(
-    new UnconfiguredEventLogRepository(),
+    options.repository,
     app.queues
   );
 

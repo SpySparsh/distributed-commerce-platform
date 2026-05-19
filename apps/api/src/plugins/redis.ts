@@ -38,6 +38,9 @@ export const redisPlugin = fp(
       maxRetriesPerRequest: 3
     });
 
+    await redis.connect();
+    await redis.ping();
+
     app.decorate("redis", redis);
     app.decorate("cache", {
       keys: cacheKeys,
