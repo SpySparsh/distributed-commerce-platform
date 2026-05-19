@@ -1,6 +1,7 @@
 export const permissions = {
   cartsRead: "carts:read",
   cartsWrite: "carts:write",
+  checkoutWrite: "checkout:write",
   inventoryRead: "inventory:read",
   inventoryWrite: "inventory:write",
   ordersRead: "orders:read",
