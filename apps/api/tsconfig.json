@@ -8,6 +8,8 @@
       "@ecommerce/config": ["packages/config/src/index.ts"],
       "@ecommerce/database": ["packages/database/src/index.ts"],
       "@ecommerce/logger": ["packages/logger/src/index.ts"],
+      "@ecommerce/queue": ["packages/queue/src/index.ts"],
+      "@ecommerce/search": ["packages/search/src/index.ts"],
       "@ecommerce/types": ["packages/types/src/index.ts"],
       "@ecommerce/validation": ["packages/validation/src/index.ts"]
     }

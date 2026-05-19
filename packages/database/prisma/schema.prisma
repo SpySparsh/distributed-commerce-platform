@@ -50,6 +50,13 @@ enum PaymentStatus {
   cancelled
 }
 
+enum PaymentWebhookStatus {
+  received
+  processed
+  ignored
+  failed
+}
+
 enum PaymentProvider {
   stripe
   razorpay
@@ -94,9 +101,11 @@ model Tenant {
   categories            Category[]
   products              Product[]
   productVariants       ProductVariant[]
+  productImages         ProductImage[]
   carts                 Cart[]
   orders                Order[]
   payments              Payment[]
+  paymentWebhookEvents  PaymentWebhookEvent[]
   inventoryItems        InventoryItem[]
   inventoryReservations InventoryReservation[]
   auditLogs             AuditLog[]
@@ -252,13 +261,16 @@ model Product {
   tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   category Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   variants ProductVariant[]
+  images   ProductImage[]
   cartItems CartItem[]
   orderItems OrderItem[]
 
   @@unique([tenantId, sku])
   @@unique([tenantId, slug])
   @@index([tenantId, status, deletedAt, createdAt, id])
+  @@index([tenantId, status, deletedAt, updatedAt, id])
   @@index([tenantId, categoryId, status, deletedAt])
+  @@index([tenantId, name])
 }
 
 model ProductVariant {
@@ -288,6 +300,26 @@ model ProductVariant {
   @@index([tenantId, status, createdAt, id])
 }
 
+model ProductImage {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @db.Uuid
+  productId String    @db.Uuid
+  url       String
+  altText   String?
+  position  Int       @default(0)
+  isPrimary Boolean   @default(false)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, productId, position])
+  @@index([tenantId, productId, isPrimary])
+  @@index([tenantId, deletedAt])
+}
+
 model InventoryItem {
   id          String    @id @default(uuid()) @db.Uuid
   tenantId    String    @db.Uuid
@@ -315,9 +347,12 @@ model InventoryReservation {
   variantId       String                     @db.Uuid
   cartItemId      String?                    @db.Uuid
   orderItemId     String?                    @db.Uuid
+  idempotencyKey  String?
   quantity        Int
   status          InventoryReservationStatus @default(active)
   expiresAt       DateTime                   @db.Timestamptz(6)
+  releasedAt      DateTime?                  @db.Timestamptz(6)
+  consumedAt      DateTime?                  @db.Timestamptz(6)
   createdAt       DateTime                   @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime                   @updatedAt @db.Timestamptz(6)
   deletedAt       DateTime?                  @db.Timestamptz(6)
@@ -328,8 +363,10 @@ model InventoryReservation {
   cartItem      CartItem?       @relation(fields: [cartItemId], references: [id], onDelete: SetNull)
   orderItem     OrderItem?      @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
 
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, status, expiresAt])
   @@index([tenantId, inventoryItemId, status])
+  @@index([tenantId, variantId, status, expiresAt])
   @@index([tenantId, cartItemId])
   @@index([tenantId, orderItemId])
 }
@@ -338,9 +375,13 @@ model Cart {
   id        String     @id @default(uuid()) @db.Uuid
   tenantId  String     @db.Uuid
   userId    String?    @db.Uuid
+  guestId   String?
+  deviceId  String?
   status    CartStatus @default(active)
+  version   Int        @default(0)
   createdAt DateTime   @default(now()) @db.Timestamptz(6)
   updatedAt DateTime   @updatedAt @db.Timestamptz(6)
+  lastSyncedAt DateTime? @db.Timestamptz(6)
   expiresAt DateTime?  @db.Timestamptz(6)
   deletedAt DateTime?  @db.Timestamptz(6)
 
@@ -350,6 +391,8 @@ model Cart {
   orders Order[]
 
   @@index([tenantId, userId, status])
+  @@index([tenantId, guestId, status])
+  @@index([tenantId, deviceId, status])
   @@index([tenantId, status, updatedAt, id])
   @@index([tenantId, expiresAt])
 }
@@ -446,6 +489,10 @@ model Payment {
   providerPaymentId     String?
   providerTransactionId String?
   idempotencyKey        String
+  failureCode           String?
+  failureMessage        String?
+  retryCount            Int             @default(0)
+  nextRetryAt           DateTime?       @db.Timestamptz(6)
   metadata              Json            @default("{}")
   authorizedAt          DateTime?       @db.Timestamptz(6)
   capturedAt            DateTime?       @db.Timestamptz(6)
@@ -462,6 +509,28 @@ model Payment {
   @@unique([tenantId, provider, providerPaymentId])
   @@index([tenantId, orderId, status])
   @@index([tenantId, status, createdAt, id])
+  @@index([tenantId, status, nextRetryAt])
+}
+
+model PaymentWebhookEvent {
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @db.Uuid
+  provider        PaymentProvider
+  providerEventId String
+  eventType       String
+  status          PaymentWebhookStatus @default(received)
+  payload         Json
+  receivedAt      DateTime             @default(now()) @db.Timestamptz(6)
+  processedAt     DateTime?            @db.Timestamptz(6)
+  createdAt       DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime             @updatedAt @db.Timestamptz(6)
+  deletedAt       DateTime?            @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, provider, providerEventId])
+  @@index([tenantId, provider, eventType, receivedAt])
+  @@index([tenantId, status, receivedAt])
 }
 
 model AuditLog {

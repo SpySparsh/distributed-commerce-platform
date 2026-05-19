@@ -29,6 +29,12 @@ export const cacheKeys = {
   cart: ({ tenantId, cartId }: CacheKeyParts & { readonly cartId: string }): string =>
     `${namespace}:${version}:tenant:${encodePart(tenantId)}:cart:${encodePart(cartId)}`,
 
+  userActiveCart: ({ tenantId, userId }: CacheKeyParts & { readonly userId: string }): string =>
+    `${namespace}:${version}:tenant:${encodePart(tenantId)}:cart:user:${encodePart(userId)}:active`,
+
+  guestActiveCart: ({ tenantId, guestId }: CacheKeyParts & { readonly guestId: string }): string =>
+    `${namespace}:${version}:tenant:${encodePart(tenantId)}:cart:guest:${encodePart(guestId)}:active`,
+
   inventoryLock: ({
     tenantId,
     variantId

@@ -30,6 +30,8 @@
       "@ecommerce/database/*": ["packages/database/src/*"],
       "@ecommerce/logger": ["packages/logger/src/index.ts"],
       "@ecommerce/logger/*": ["packages/logger/src/*"],
+      "@ecommerce/queue": ["packages/queue/src/index.ts"],
+      "@ecommerce/queue/*": ["packages/queue/src/*"],
       "@ecommerce/types": ["packages/types/src/index.ts"],
       "@ecommerce/types/*": ["packages/types/src/*"],
       "@ecommerce/ui": ["packages/ui/src/index.ts"],

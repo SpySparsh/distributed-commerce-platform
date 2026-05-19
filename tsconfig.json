@@ -8,6 +8,8 @@
     { "path": "./packages/config" },
     { "path": "./packages/database" },
     { "path": "./packages/logger" },
+    { "path": "./packages/queue" },
+    { "path": "./packages/search" },
     { "path": "./packages/shared" },
     { "path": "./packages/types" },
     { "path": "./packages/ui" },

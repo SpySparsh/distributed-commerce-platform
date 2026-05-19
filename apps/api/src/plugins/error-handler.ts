@@ -76,7 +76,10 @@ export const registerErrorHandler = (app: FastifyInstance): void => {
 
       request.log.error(
         {
+          requestId: request.id,
           correlationId: request.correlationId,
+          method: request.method,
+          url: request.url,
           error
         },
         "Unhandled request error"

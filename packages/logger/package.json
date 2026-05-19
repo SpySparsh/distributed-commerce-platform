@@ -11,6 +11,9 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "pino": "^10.0.0"
+  },
   "devDependencies": {
     "typescript": "^6.0.3"
   }

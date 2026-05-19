@@ -1,0 +1,186 @@
+import type { FastifyPluginAsync } from "fastify";
+import type { RedisCacheClient } from "@ecommerce/cache";
+import { validateRequest, withRateLimit } from "../../http/validate.js";
+import {
+  cartIdentityQuerySchema,
+  cartParamsSchema,
+  mergeCartBodySchema,
+  removeCartItemParamsSchema,
+  upsertCartItemBodySchema
+} from "./cart.schemas.js";
+import { UnconfiguredCartRepository } from "./cart.repository.js";
+import { UnconfiguredCartInventoryReader } from "./inventory.reader.js";
+import { createCartService } from "./cart.service.js";
+
+const createRedisCacheClient = (app: Parameters<FastifyPluginAsync>[0]): RedisCacheClient => ({
+  get: (key) => app.redis.get(key),
+  set: (key, value, mode, ttl, condition) =>
+    mode === undefined || ttl === undefined
+      ? app.redis.set(key, value)
+      : condition === undefined
+        ? app.redis.call("set", key, value, mode, String(ttl))
+        : app.redis.call("set", key, value, mode, String(ttl), condition),
+  del: (...keys) => app.redis.del(...keys),
+  expire: (key, seconds) => app.redis.expire(key, seconds),
+  scan: (cursor, matchLabel, pattern, countLabel, count) =>
+    app.redis.scan(cursor, matchLabel, pattern, countLabel, count),
+  eval: (script, keyCount, ...args) => app.redis.eval(script, keyCount, ...args),
+  hgetall: (key) => app.redis.hgetall(key),
+  hset: (key, values) => app.redis.hset(key, values),
+  hdel: (key, ...fields) => app.redis.hdel(key, ...fields)
+});
+
+export const cartRoutes: FastifyPluginAsync = async (app) => {
+  const cartService = createCartService(
+    new UnconfiguredCartRepository(),
+    new UnconfiguredCartInventoryReader(),
+    createRedisCacheClient(app)
+  );
+
+  app.post(
+    "/",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "carts:create", maxRequests: 120 }),
+        validateRequest({ query: cartIdentityQuerySchema })
+      ]
+    },
+    async (request) => {
+      const identity = cartIdentityQuerySchema.parse(request.query);
+      const cart = await cartService.getOrCreateCart(identity);
+
+      return {
+        ok: true,
+        data: {
+          cart
+        }
+      };
+    }
+  );
+
+  app.get(
+    "/:cartId",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "carts:get", maxRequests: 300 }),
+        validateRequest({ params: cartParamsSchema, query: cartIdentityQuerySchema })
+      ]
+    },
+    async (request, reply) => {
+      const params = cartParamsSchema.parse(request.params);
+      const query = cartIdentityQuerySchema.parse(request.query);
+      const cart = await cartService.getCart(query.tenantId, params.cartId);
+
+      if (cart === undefined) {
+        await reply.status(404).send({
+          ok: false,
+          error: {
+            code: "CART_NOT_FOUND",
+            message: "Cart not found",
+            correlationId: request.correlationId
+          }
+        });
+        return;
+      }
+
+      return {
+        ok: true,
+        data: {
+          cart
+        }
+      };
+    }
+  );
+
+  app.put(
+    "/:cartId/items",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "carts:item:upsert", maxRequests: 180 }),
+        validateRequest({ params: cartParamsSchema, query: cartIdentityQuerySchema, body: upsertCartItemBodySchema })
+      ]
+    },
+    async (request) => {
+      const params = cartParamsSchema.parse(request.params);
+      const query = cartIdentityQuerySchema.parse(request.query);
+      const body = upsertCartItemBodySchema.parse(request.body);
+      const cart = await cartService.upsertItem(query.tenantId, params.cartId, body);
+
+      return {
+        ok: true,
+        data: {
+          cart
+        }
+      };
+    }
+  );
+
+  app.delete(
+    "/:cartId/items/:variantId",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "carts:item:remove", maxRequests: 180 }),
+        validateRequest({ params: removeCartItemParamsSchema, query: cartIdentityQuerySchema })
+      ]
+    },
+    async (request) => {
+      const params = removeCartItemParamsSchema.parse(request.params);
+      const query = cartIdentityQuerySchema.parse(request.query);
+      const cart = await cartService.removeItem(query.tenantId, params.cartId, params.variantId);
+
+      return {
+        ok: true,
+        data: {
+          cart
+        }
+      };
+    }
+  );
+
+  app.post(
+    "/merge",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "carts:merge", maxRequests: 60 }),
+        validateRequest({ body: mergeCartBodySchema })
+      ]
+    },
+    async (request) => {
+      const body = mergeCartBodySchema.parse(request.body);
+      const cart = await cartService.mergeGuestCart(
+        body.tenantId,
+        body.sourceCartId,
+        body.targetCartId
+      );
+
+      return {
+        ok: true,
+        data: {
+          cart
+        }
+      };
+    }
+  );
+
+  app.post(
+    "/:cartId/sync",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "carts:sync", maxRequests: 120 }),
+        validateRequest({ params: cartParamsSchema, query: cartIdentityQuerySchema })
+      ]
+    },
+    async (request) => {
+      const params = cartParamsSchema.parse(request.params);
+      const query = cartIdentityQuerySchema.parse(request.query);
+      const cart = await cartService.syncCart(query.tenantId, params.cartId);
+
+      return {
+        ok: true,
+        data: {
+          cart
+        }
+      };
+    }
+  );
+};

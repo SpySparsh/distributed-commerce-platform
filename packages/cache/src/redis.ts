@@ -1,13 +1,12 @@
 export interface RedisCacheClient {
   get(key: string): Promise<string | null>;
-  set(key: string, value: string, mode?: "EX" | "PX", ttl?: number): Promise<unknown>;
   set(
     key: string,
     value: string,
-    mode: "EX" | "PX",
-    ttl: number,
-    condition: "NX" | "XX"
-  ): Promise<"OK" | null>;
+    mode?: "EX" | "PX",
+    ttl?: number,
+    condition?: "NX" | "XX"
+  ): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
   scan(

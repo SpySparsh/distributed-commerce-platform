@@ -1,9 +1,9 @@
+import { createPinoOptions } from "@ecommerce/logger";
 import type { ApiEnv } from "../env.js";
 
-export const createLoggerOptions = (config: ApiEnv) => ({
-  level: config.LOG_LEVEL,
-  redact: {
-    paths: ["req.headers.authorization", "req.headers.cookie"],
-    remove: true
-  }
-});
+export const createLoggerOptions = (config: ApiEnv) =>
+  createPinoOptions({
+    serviceName: "api",
+    environment: config.NODE_ENV,
+    level: config.LOG_LEVEL
+  });

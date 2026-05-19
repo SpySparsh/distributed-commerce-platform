@@ -3,6 +3,7 @@ import type { RedisCacheClient } from "./redis.js";
 import { cacheTtl } from "./ttl.js";
 
 export interface CachedCartItem {
+  readonly productId: string;
   readonly variantId: string;
   readonly quantity: number;
   readonly unitPrice: string;
@@ -14,8 +15,12 @@ export interface CachedCart {
   readonly id: string;
   readonly tenantId: string;
   readonly userId?: string;
+  readonly guestId?: string;
+  readonly deviceId?: string;
+  readonly version: number;
   readonly items: readonly CachedCartItem[];
   readonly updatedAt: string;
+  readonly expiresAt: string;
 }
 
 export const saveCart = async (
@@ -28,6 +33,14 @@ export const saveCart = async (
     "EX",
     cacheTtl.cart.freshSeconds
   );
+};
+
+export const touchCartExpiration = async (
+  redis: RedisCacheClient,
+  tenantId: string,
+  cartId: string
+): Promise<void> => {
+  await redis.expire(cacheKeys.cart({ tenantId, cartId }), cacheTtl.cart.freshSeconds);
 };
 
 export const getCart = async (
@@ -45,4 +58,26 @@ export const deleteCart = async (
   cartId: string
 ): Promise<void> => {
   await redis.del(cacheKeys.cart({ tenantId, cartId }));
+};
+
+export const mergeCartItems = (
+  targetItems: readonly CachedCartItem[],
+  sourceItems: readonly CachedCartItem[]
+): readonly CachedCartItem[] => {
+  const merged = new Map<string, CachedCartItem>();
+
+  for (const item of targetItems) {
+    merged.set(item.variantId, item);
+  }
+
+  for (const item of sourceItems) {
+    const existing = merged.get(item.variantId);
+    merged.set(item.variantId, {
+      ...item,
+      quantity: (existing?.quantity ?? 0) + item.quantity,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  return [...merged.values()];
 };

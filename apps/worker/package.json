@@ -14,8 +14,11 @@
     "@ecommerce/cache": "workspace:*",
     "@ecommerce/database": "workspace:*",
     "@ecommerce/logger": "workspace:*",
+    "@ecommerce/queue": "workspace:*",
+    "@ecommerce/search": "workspace:*",
     "bullmq": "^5.0.0",
     "ioredis": "^5.0.0",
+    "pino": "^10.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
