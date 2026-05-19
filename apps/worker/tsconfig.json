@@ -1,0 +1,15 @@
+{
+  "extends": "../../packages/config/tsconfig/node.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@worker/*": ["apps/worker/src/*"],
+      "@ecommerce/cache": ["packages/cache/src/index.ts"],
+      "@ecommerce/config": ["packages/config/src/index.ts"],
+      "@ecommerce/database": ["packages/database/src/index.ts"],
+      "@ecommerce/logger": ["packages/logger/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,36 @@
+{
+  "name": "ecommerce-platform",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "format": "prettier --write .",
+    "typecheck": "tsc -b",
+    "typecheck:turbo": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^25.9.0",
+    "eslint": "^9.29.0",
+    "prettier": "^3.6.0",
+    "prisma": "^7.8.0",
+    "tsconfig-paths": "^4.2.0",
+    "turbo": "^2.6.0",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.8.0",
+    "zod": "^4.4.3"
+  }
+}

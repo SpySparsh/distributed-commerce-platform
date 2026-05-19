@@ -1,0 +1,12 @@
+{
+  "extends": "../config/tsconfig/node.json",
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@ecommerce/types": ["packages/types/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,17 @@
+{
+  "extends": "../../packages/config/tsconfig/node.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@api/*": ["apps/api/src/*"],
+      "@ecommerce/cache": ["packages/cache/src/index.ts"],
+      "@ecommerce/config": ["packages/config/src/index.ts"],
+      "@ecommerce/database": ["packages/database/src/index.ts"],
+      "@ecommerce/logger": ["packages/logger/src/index.ts"],
+      "@ecommerce/types": ["packages/types/src/index.ts"],
+      "@ecommerce/validation": ["packages/validation/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

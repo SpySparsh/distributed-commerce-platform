@@ -1,0 +1,18 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./apps/web" },
+    { "path": "./apps/api" },
+    { "path": "./apps/worker" },
+    { "path": "./packages/cache" },
+    { "path": "./packages/config" },
+    { "path": "./packages/database" },
+    { "path": "./packages/logger" },
+    { "path": "./packages/shared" },
+    { "path": "./packages/types" },
+    { "path": "./packages/ui" },
+    { "path": "./packages/validation" },
+    { "path": "./server" },
+    { "path": "./ecommerce-frontend" }
+  ]
+}
