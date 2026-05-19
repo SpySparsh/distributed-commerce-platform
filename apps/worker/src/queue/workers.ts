@@ -23,7 +23,8 @@ const workerQueueNames = [
   queueNames.paymentRetry,
   queueNames.stockSync,
   queueNames.inventory,
-  queueNames.search
+  queueNames.search,
+  queueNames.domainEvents
 ] satisfies readonly QueueName[];
 
 const getErrorMessage = (error: unknown): string =>
@@ -48,7 +49,8 @@ export const createWorkers = (
           }
 
           await handleWorkerJob(parsed as WorkerJob, {
-            logger
+            logger,
+            queues: producer
           });
         },
         {

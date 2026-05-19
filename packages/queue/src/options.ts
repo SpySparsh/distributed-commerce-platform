@@ -53,6 +53,11 @@ export const queueRouting = {
     attempts: 3,
     backoffMs: 30_000
   },
+  [jobNames.dispatchDomainEvent]: {
+    queueName: queueNames.domainEvents,
+    attempts: 8,
+    backoffMs: 5_000
+  },
   [jobNames.deadLetter]: {
     queueName: queueNames.deadLetter,
     attempts: 1,

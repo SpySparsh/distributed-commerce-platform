@@ -1,0 +1,32 @@
+import type { ApiEnv } from "../env.js";
+
+export const createTestApiEnv = (overrides: Partial<ApiEnv> = {}): ApiEnv => ({
+  NODE_ENV: "test",
+  API_HOST: "127.0.0.1",
+  API_PORT: 0,
+  DATABASE_URL: "postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_test?schema=public",
+  REDIS_URL: "redis://localhost:6379/15",
+  LOG_LEVEL: "silent",
+  SENTRY_TRACES_SAMPLE_RATE: 0,
+  SLOW_API_THRESHOLD_MS: 500,
+  REQUEST_ID_HEADER: "x-request-id",
+  CORS_ORIGIN: "http://localhost:3000",
+  CORS_ALLOWED_METHODS: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  SHUTDOWN_GRACE_MS: 1000,
+  RATE_LIMIT_WINDOW_SECONDS: 60,
+  RATE_LIMIT_MAX_REQUESTS: 1000,
+  AUTH_RATE_LIMIT_MAX_REQUESTS: 100,
+  ACCESS_TOKEN_SECRET: "test-access-token-secret-at-least-32-chars",
+  REFRESH_TOKEN_SECRET: "test-refresh-token-secret-at-least-32-chars",
+  ACCESS_TOKEN_TTL_SECONDS: 900,
+  REFRESH_TOKEN_TTL_SECONDS: 60 * 60,
+  AUTH_COOKIE_SECURE: false,
+  CSRF_COOKIE_NAME: "csrf_token",
+  CSRF_HEADER_NAME: "x-csrf-token",
+  PAYMENT_PROVIDER: "stripe",
+  PAYMENT_WEBHOOK_TOLERANCE_SECONDS: 300,
+  MEILISEARCH_HOST: "http://localhost:7700",
+  MEILISEARCH_API_KEY: "development-master-key",
+  MEILISEARCH_INDEX_PREFIX: "test",
+  ...overrides
+});

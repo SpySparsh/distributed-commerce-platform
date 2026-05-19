@@ -1,8 +1,11 @@
 import type { Logger } from "pino";
-import type { WorkerJob } from "@ecommerce/queue";
+import type { QueueProducer, WorkerJob } from "@ecommerce/queue";
+import { domainEventSchema } from "@ecommerce/events";
+import { consumeDomainEvent } from "./domain-event-consumers.js";
 
 export interface JobHandlerContext {
   readonly logger: Logger;
+  readonly queues: QueueProducer;
 }
 
 export type JobHandler<TJob extends WorkerJob = WorkerJob> = (
@@ -56,6 +59,9 @@ export const handleWorkerJob = async (
       return;
     case "search.index.rebuild":
       await logPlannedAsyncWork(job, context, "Search index rebuild job accepted");
+      return;
+    case "domain-event.dispatch":
+      await consumeDomainEvent(domainEventSchema.parse(job.data.event), context);
       return;
   }
 };

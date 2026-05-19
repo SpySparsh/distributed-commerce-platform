@@ -95,6 +95,14 @@ export const rebuildSearchIndexJobSchema = z.object({
   })
 });
 
+export const dispatchDomainEventJobSchema = z.object({
+  name: z.literal(jobNames.dispatchDomainEvent),
+  metadata: jobMetadataSchema,
+  data: z.object({
+    event: z.unknown()
+  })
+});
+
 export const deadLetterJobSchema = z.object({
   name: z.literal(jobNames.deadLetter),
   metadata: jobMetadataSchema,
@@ -118,6 +126,7 @@ export const ecommerceJobSchema = z.discriminatedUnion("name", [
   indexProductSearchDocumentJobSchema,
   deleteProductSearchDocumentJobSchema,
   rebuildSearchIndexJobSchema,
+  dispatchDomainEventJobSchema,
   deadLetterJobSchema
 ]);
 
@@ -130,6 +139,7 @@ export type ReleaseExpiredInventoryReservationsJob = z.infer<typeof releaseExpir
 export type IndexProductSearchDocumentJob = z.infer<typeof indexProductSearchDocumentJobSchema>;
 export type DeleteProductSearchDocumentJob = z.infer<typeof deleteProductSearchDocumentJobSchema>;
 export type RebuildSearchIndexJob = z.infer<typeof rebuildSearchIndexJobSchema>;
+export type DispatchDomainEventJob = z.infer<typeof dispatchDomainEventJobSchema>;
 export type DeadLetterJob = z.infer<typeof deadLetterJobSchema>;
 export type EcommerceJob = z.infer<typeof ecommerceJobSchema>;
 

@@ -6,6 +6,7 @@ export const queueNames = {
   stockSync: "stock-sync",
   inventory: "inventory",
   search: "search",
+  domainEvents: "domain-events",
   deadLetter: "dead-letter"
 } as const;
 
@@ -21,6 +22,7 @@ export const jobNames = {
   indexProductSearchDocument: "search.product.index",
   deleteProductSearchDocument: "search.product.delete",
   rebuildSearchIndex: "search.index.rebuild",
+  dispatchDomainEvent: "domain-event.dispatch",
   deadLetter: "dead-letter.record"
 } as const;
 

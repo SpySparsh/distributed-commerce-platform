@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
+    "test": "vitest run packages/queue",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

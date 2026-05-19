@@ -11,6 +11,11 @@
     "dev": "turbo run dev --parallel",
     "lint": "turbo run lint",
     "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --exclude \"**/*.integration.test.ts\"",
+    "test:integration": "vitest run \"**/*.integration.test.ts\"",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -b",
     "typecheck:turbo": "turbo run typecheck"
   },
@@ -21,13 +26,16 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^25.9.0",
+    "@types/supertest": "7.2.0",
     "eslint": "^9.29.0",
     "prettier": "^3.6.0",
     "prisma": "^7.8.0",
+    "supertest": "7.2.2",
     "tsconfig-paths": "^4.2.0",
-    "turbo": "^2.6.0",
     "tsx": "^4.22.3",
-    "typescript": "^6.0.3"
+    "turbo": "^2.6.0",
+    "typescript": "^6.0.3",
+    "vitest": "4.1.6"
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",

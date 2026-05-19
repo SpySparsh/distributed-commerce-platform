@@ -7,6 +7,7 @@
       "@ecommerce/cache": ["packages/cache/src/index.ts"],
       "@ecommerce/config": ["packages/config/src/index.ts"],
       "@ecommerce/database": ["packages/database/src/index.ts"],
+      "@ecommerce/events": ["packages/events/src/index.ts"],
       "@ecommerce/logger": ["packages/logger/src/index.ts"],
       "@ecommerce/queue": ["packages/queue/src/index.ts"],
       "@ecommerce/search": ["packages/search/src/index.ts"]
