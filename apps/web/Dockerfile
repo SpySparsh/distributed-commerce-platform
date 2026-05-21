@@ -11,13 +11,15 @@ COPY packages/ui/package.json packages/ui/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
-COPY . .
-RUN pnpm --filter @ecommerce/web build
+COPY apps/web apps/web
+COPY packages/config packages/config
+COPY packages/types packages/types
+COPY packages/ui packages/ui
+RUN pnpm install --frozen-lockfile --offline --force
+RUN pnpm --filter @ecommerce/web exec next build
 
-FROM base AS runner
+FROM build AS runner
 ENV NODE_ENV=production
-COPY --from=build /app/apps/web/.next/standalone ./
-COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000 >/dev/null || exit 1
