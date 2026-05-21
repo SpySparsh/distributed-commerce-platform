@@ -10,8 +10,10 @@ config({
   path: path.resolve(__dirname, "../../.env"),
 });
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is missing");
+const databaseUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+
+if (databaseUrl === undefined || databaseUrl.length === 0) {
+  throw new Error("DATABASE_URL or DIRECT_URL is required");
 }
 
 export default defineConfig({
@@ -22,6 +24,6 @@ export default defineConfig({
   },
 
   datasource: {
-    url: process.env.DATABASE_URL,
+    url: databaseUrl,
   },
 });

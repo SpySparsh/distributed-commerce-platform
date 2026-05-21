@@ -5,10 +5,8 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL:-}
     command: ["pnpm", "--filter", "@ecommerce/database", "db:migrate"]
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   web:
     image: ${REGISTRY_IMAGE:-ghcr.io/your-org/ecommerce}/web:${IMAGE_TAG:-latest}
@@ -63,8 +61,6 @@ services:
     ports:
       - "${API_PORT:-4000}:4000"
     depends_on:
-      postgres:
-        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       redis:
@@ -85,8 +81,6 @@ services:
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
       WORKER_SHUTDOWN_GRACE_MS: ${WORKER_SHUTDOWN_GRACE_MS:-10000}
     depends_on:
-      postgres:
-        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       redis:
@@ -110,21 +104,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -154,6 +133,5 @@ services:
       retries: 5
 
 volumes:
-  postgres-data:
   redis-data:
   meilisearch-data:
