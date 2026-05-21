@@ -10,7 +10,10 @@ config({
   path: path.resolve(__dirname, "../../.env"),
 });
 
-const databaseUrl = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+const databaseUrl =
+  process.env.DIRECT_URL && process.env.DIRECT_URL.length > 0
+    ? process.env.DIRECT_URL
+    : process.env.DATABASE_URL;
 
 if (databaseUrl === undefined || databaseUrl.length === 0) {
   throw new Error("DATABASE_URL or DIRECT_URL is required");

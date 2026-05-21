@@ -279,7 +279,7 @@ flowchart TD
   Host --> Web["web"]
   Host --> API["api"]
   Host --> Worker["worker"]
-  Host --> Postgres["postgres"]
+  Host --> Supabase["Supabase Postgres"]
   Host --> Redis["redis"]
   Host --> Meili["meilisearch"]
 ```
@@ -330,7 +330,24 @@ corepack pnpm typecheck
 corepack pnpm test
 ```
 
-Start the full local stack:
+Create `.env` from `.env.example`, then replace the Supabase database values:
+
+```bash
+DATABASE_URL="postgresql://prisma.<project-ref>:<password>@<region>.pooler.supabase.com:5432/postgres?schema=public&sslmode=require"
+DIRECT_URL=""
+```
+
+`DATABASE_URL` is used by the API, worker, seed script, and Prisma Client runtime. `DIRECT_URL` is optional; when set, Prisma 7 uses it as the CLI datasource URL for migration commands because `datasource.directUrl` is no longer supported in `schema.prisma` or `prisma.config.ts`.
+
+Apply migrations and seed the Supabase database:
+
+```bash
+corepack pnpm db:generate
+corepack pnpm db:migrate
+corepack pnpm db:seed
+```
+
+Start the local app stack. Docker Compose runs Redis, Meilisearch, the API, worker, and web app; PostgreSQL is provided by Supabase:
 
 ```bash
 docker compose up --build
