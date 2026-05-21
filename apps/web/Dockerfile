@@ -18,8 +18,12 @@ COPY packages/ui packages/ui
 RUN pnpm install --frozen-lockfile --offline --force
 RUN pnpm --filter @ecommerce/web exec next build
 
-FROM build AS runner
+FROM base AS runner
 ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+COPY --from=build /app/apps/web/.next/standalone ./
+COPY --from=build /app/apps/web/.next/static ./apps/web/.next/static
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000 >/dev/null || exit 1
