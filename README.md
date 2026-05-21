@@ -334,10 +334,10 @@ Create `.env` from `.env.example`, then replace the Supabase database values:
 
 ```bash
 DATABASE_URL="postgresql://prisma.<project-ref>:<password>@<region>.pooler.supabase.com:5432/postgres?schema=public&sslmode=require"
-DIRECT_URL=""
+DIRECT_URL="postgresql://postgres.<project-ref>:<password>@<region>.pooler.supabase.com:5432/postgres?schema=public&sslmode=require"
 ```
 
-`DATABASE_URL` is used by the API, worker, seed script, and Prisma Client runtime. `DIRECT_URL` is optional; when set, Prisma 7 uses it as the CLI datasource URL for migration commands because `datasource.directUrl` is no longer supported in `schema.prisma` or `prisma.config.ts`.
+`DATABASE_URL` is used by the API, worker, seed script, and Prisma Client runtime. `DIRECT_URL` is required by Prisma CLI commands and migrations; use a Supabase direct or session-safe connection so migrations do not run through the transaction pooler.
 
 Apply migrations and seed the Supabase database:
 

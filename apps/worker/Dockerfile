@@ -20,7 +20,7 @@ FROM deps AS build
 COPY apps/worker apps/worker
 COPY packages packages
 RUN pnpm install --frozen-lockfile --offline
-RUN DATABASE_URL="postgresql://prisma:prisma@localhost:5432/prisma?schema=public" pnpm exec prisma generate --config packages/database/prisma.config.ts
+RUN DIRECT_URL="postgresql://prisma:prisma@localhost:5432/prisma?schema=public" pnpm exec prisma generate --config packages/database/prisma.config.ts
 RUN pnpm exec tsc -p apps/worker/tsconfig.json --noEmit
 
 FROM build AS runner
