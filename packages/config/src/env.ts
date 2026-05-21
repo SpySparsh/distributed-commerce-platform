@@ -12,4 +12,13 @@ export const createEnvSchema = <TShape extends z.ZodRawShape>(shape: TShape) =>
 export const parseEnv = <TSchema extends z.ZodType>(
   schema: TSchema,
   env: Record<string, string | undefined>
-): z.output<TSchema> => schema.parse(env);
+): z.output<TSchema> => {
+  const normalizedEnv = Object.fromEntries(
+    Object.entries(env).map(([key, value]) => [
+      key,
+      value === "" ? undefined : value
+    ])
+  );
+
+  return schema.parse(normalizedEnv);
+};
