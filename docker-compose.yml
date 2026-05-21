@@ -8,7 +8,7 @@ services:
       NODE_ENV: development
       DATABASE_URL: ${DATABASE_URL}
       DIRECT_URL: ${DIRECT_URL:-}
-    command: ["pnpm", "--filter", "@ecommerce/database", "db:migrate"]
+    command: ["pnpm", "exec", "prisma", "migrate", "deploy", "--config", "packages/database/prisma.config.ts"]
 
   web:
     build:
@@ -98,7 +98,7 @@ services:
       SEED_TENANT_SLUG: ${SEED_TENANT_SLUG:-demo-store}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe12345}
-    command: ["pnpm", "--filter", "@ecommerce/database", "db:seed"]
+    command: ["pnpm", "exec", "tsx", "packages/database/prisma/seed.ts"]
     depends_on:
       migrate:
         condition: service_completed_successfully

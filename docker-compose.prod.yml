@@ -6,7 +6,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
       DIRECT_URL: ${DIRECT_URL:-}
-    command: ["pnpm", "--filter", "@ecommerce/database", "db:migrate"]
+    command: ["pnpm", "exec", "prisma", "migrate", "deploy", "--config", "packages/database/prisma.config.ts"]
 
   web:
     image: ${REGISTRY_IMAGE:-ghcr.io/your-org/ecommerce}/web:${IMAGE_TAG:-latest}
@@ -100,7 +100,7 @@ services:
       SEED_TENANT_SLUG: ${SEED_TENANT_SLUG:-}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
-    command: ["pnpm", "--filter", "@ecommerce/database", "db:seed"]
+    command: ["pnpm", "exec", "tsx", "packages/database/prisma/seed.ts"]
     depends_on:
       migrate:
         condition: service_completed_successfully

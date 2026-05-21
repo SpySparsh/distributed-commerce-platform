@@ -19,15 +19,14 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 COPY apps/worker apps/worker
 COPY packages packages
-RUN pnpm --filter @ecommerce/database db:generate
-RUN pnpm --filter @ecommerce/worker typecheck
+RUN pnpm install --frozen-lockfile --offline
+RUN DATABASE_URL="postgresql://prisma:prisma@localhost:5432/prisma?schema=public" pnpm exec prisma generate --config packages/database/prisma.config.ts
+RUN pnpm exec tsc -p apps/worker/tsconfig.json --noEmit
 
-FROM deps AS runner
+FROM build AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=build /app/apps/worker apps/worker
-COPY --from=build /app/packages packages
 USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "process.exit(0)"
-CMD ["pnpm", "--filter", "@ecommerce/worker", "start"]
+CMD ["pnpm", "exec", "tsx", "apps/worker/src/index.ts"]

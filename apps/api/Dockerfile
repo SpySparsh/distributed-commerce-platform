@@ -7,6 +7,7 @@ RUN corepack enable
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json tsconfig.json ./
 COPY apps/api/package.json apps/api/package.json
+COPY apps/worker/package.json apps/worker/package.json
 COPY packages/cache/package.json packages/cache/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/database/package.json packages/database/package.json
@@ -20,17 +21,17 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY apps/api apps/api
+COPY apps/worker apps/worker
 COPY packages packages
-RUN pnpm --filter @ecommerce/database db:generate
-RUN pnpm --filter @ecommerce/api typecheck
+RUN pnpm install --frozen-lockfile --offline
+RUN DATABASE_URL="postgresql://prisma:prisma@localhost:5432/prisma?schema=public" pnpm exec prisma generate --config packages/database/prisma.config.ts
+RUN pnpm exec tsc -p apps/api/tsconfig.json --noEmit
 
-FROM deps AS runner
+FROM build AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=build /app/apps/api apps/api
-COPY --from=build /app/packages packages
 USER node
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- http://127.0.0.1:4000/health >/dev/null || exit 1
-CMD ["pnpm", "--filter", "@ecommerce/api", "start"]
+CMD ["pnpm", "exec", "tsx", "apps/api/src/index.ts"]
