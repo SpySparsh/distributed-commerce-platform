@@ -1,4 +1,15 @@
 services:
+  migrate:
+    image: ${REGISTRY_IMAGE:-ghcr.io/your-org/ecommerce}/api:${IMAGE_TAG:-latest}
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+    command: ["pnpm", "--filter", "@ecommerce/database", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   web:
     image: ${REGISTRY_IMAGE:-ghcr.io/your-org/ecommerce}/web:${IMAGE_TAG:-latest}
     restart: unless-stopped
@@ -54,6 +65,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       meilisearch:
@@ -66,15 +79,37 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
+      MEILISEARCH_HOST: ${MEILISEARCH_HOST}
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY}
+      MEILISEARCH_INDEX_PREFIX: ${MEILISEARCH_INDEX_PREFIX:-ecommerce}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
       WORKER_SHUTDOWN_GRACE_MS: ${WORKER_SHUTDOWN_GRACE_MS:-10000}
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       meilisearch:
         condition: service_healthy
+
+  seed:
+    image: ${REGISTRY_IMAGE:-ghcr.io/your-org/ecommerce}/api:${IMAGE_TAG:-latest}
+    profiles:
+      - tools
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      SEED_TENANT_NAME: ${SEED_TENANT_NAME:-}
+      SEED_TENANT_SLUG: ${SEED_TENANT_SLUG:-}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+    command: ["pnpm", "--filter", "@ecommerce/database", "db:seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   postgres:
     image: postgres:17-alpine

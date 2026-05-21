@@ -19,6 +19,7 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 COPY apps/worker apps/worker
 COPY packages packages
+RUN pnpm --filter @ecommerce/database db:generate
 RUN pnpm --filter @ecommerce/worker typecheck
 
 FROM deps AS runner

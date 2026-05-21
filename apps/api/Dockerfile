@@ -21,6 +21,7 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 COPY apps/api apps/api
 COPY packages packages
+RUN pnpm --filter @ecommerce/database db:generate
 RUN pnpm --filter @ecommerce/api typecheck
 
 FROM deps AS runner

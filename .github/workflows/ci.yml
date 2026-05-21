@@ -54,13 +54,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
-
       - name: Prisma validate
         run: pnpm --filter @ecommerce/database prisma:validate
         env:
           DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+
+      - name: Prisma generate
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+
+      - name: Apply database migrations
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Integration tests
+        run: pnpm test:integration
+        env:
+          RUN_INTEGRATION: "true"
+          DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+          REDIS_URL: redis://localhost:6379/15
