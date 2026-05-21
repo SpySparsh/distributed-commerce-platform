@@ -1,4 +1,4 @@
-import { PrismaClient } from "@ecommerce/database";
+import { createPrismaClient } from "@ecommerce/database";
 import { createQueueProducer } from "@ecommerce/queue";
 import { MeilisearchHttpClient } from "@ecommerce/search";
 import { loadWorkerEnv } from "./config/runtime.js";
@@ -21,7 +21,8 @@ const closeWithTimeout = async (
 export const startWorkerRuntime = async (): Promise<void> => {
   const env = loadWorkerEnv();
   const logger = createWorkerLogger(env);
-  const prisma = new PrismaClient({
+  const prisma = createPrismaClient({
+    databaseUrl: env.DATABASE_URL,
     log: ["error", "warn"]
   });
   await prisma.$connect();

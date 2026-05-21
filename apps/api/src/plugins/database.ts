@@ -1,4 +1,4 @@
-import { PrismaClient } from "@ecommerce/database";
+import { createPrismaClient, PrismaClient } from "@ecommerce/database";
 import fp from "fastify-plugin";
 
 declare module "fastify" {
@@ -9,7 +9,8 @@ declare module "fastify" {
 
 export const databasePlugin = fp(
   async (app) => {
-    const prisma = new PrismaClient({
+    const prisma = createPrismaClient({
+      databaseUrl: app.config.DATABASE_URL,
       log:
         app.config.NODE_ENV === "production"
           ? ["error", "warn"]
