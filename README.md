@@ -315,19 +315,20 @@ Integration tests are intentionally gated so local test runs stay fast and deter
 
 Detailed doc: [TESTING_STRATEGY.md](./TESTING_STRATEGY.md)
 
-## Running Locally
+## Local Setup
+
+Prerequisites:
+
+- Node.js 22+ or 24+
+- pnpm through Corepack
+- Docker Desktop
+- Supabase PostgreSQL project
 
 Install dependencies:
 
 ```bash
+corepack enable
 corepack pnpm install
-```
-
-Run validation:
-
-```bash
-corepack pnpm typecheck
-corepack pnpm test
 ```
 
 Create `.env` from `.env.example`, then replace the Supabase database values:
@@ -337,27 +338,198 @@ DATABASE_URL="postgresql://prisma.<project-ref>:<password>@<region>.pooler.supab
 DIRECT_URL="postgresql://postgres.<project-ref>:<password>@<region>.pooler.supabase.com:5432/postgres?schema=public&sslmode=require"
 ```
 
-`DATABASE_URL` is used by the API, worker, seed script, and Prisma Client runtime. `DIRECT_URL` is required by Prisma CLI commands and migrations; use a Supabase direct or session-safe connection so migrations do not run through the transaction pooler.
+`DATABASE_URL` is used by API, worker, seed, and Prisma Client runtime. `DIRECT_URL` is used by Prisma CLI migration commands. Keep `DIRECT_URL` on a direct or session-safe Supabase connection so migrations do not run through the transaction pooler.
 
-Apply migrations and seed the Supabase database:
-
-```bash
-corepack pnpm db:generate
-corepack pnpm db:migrate
-corepack pnpm db:seed
-```
-
-Start the local app stack. Docker Compose runs Redis, Meilisearch, the API, worker, and web app; PostgreSQL is provided by Supabase:
+Validate local environment:
 
 ```bash
-docker compose up --build
+corepack pnpm env:check
 ```
 
-Useful local endpoints:
+One-command local startup:
+
+```bash
+corepack pnpm local:start
+```
+
+This command validates `.env`, builds and starts Docker Compose, applies migrations through the `migrate` service, runs the seed job, and verifies the frontend, backend, Redis, Meilisearch, and Prisma-backed readiness endpoint.
+
+Useful endpoints:
 
 - Web: `http://localhost:3000`
 - API health: `http://localhost:4000/health`
-- Meilisearch: `http://localhost:7700`
+- API readiness: `http://localhost:4000/health/ready`
+- Meilisearch: `http://localhost:7700/health`
+
+## Local Commands
+
+Install:
+
+```bash
+corepack pnpm install
+```
+
+Generate Prisma Client:
+
+```bash
+corepack pnpm db:generate
+```
+
+Apply migrations:
+
+```bash
+corepack pnpm db:migrate
+```
+
+Seed Supabase:
+
+```bash
+corepack pnpm db:seed
+```
+
+Run app services in Docker:
+
+```bash
+corepack pnpm docker:up
+```
+
+Run one-shot seed in Docker:
+
+```bash
+corepack pnpm docker:seed
+```
+
+Follow logs:
+
+```bash
+corepack pnpm docker:logs
+```
+
+Run health checks:
+
+```bash
+corepack pnpm healthcheck
+```
+
+Rebuild images:
+
+```bash
+corepack pnpm docker:rebuild
+```
+
+Shutdown:
+
+```bash
+corepack pnpm docker:down
+```
+
+Local source hot reload is available through the workspace dev command:
+
+```bash
+corepack pnpm dev
+```
+
+For hot reload, run Redis and Meilisearch first:
+
+```bash
+corepack pnpm infra:up
+```
+
+## Docker Setup
+
+Docker Compose starts these local services:
+
+- `web`: Next.js standalone frontend
+- `api`: Fastify API
+- `worker`: BullMQ worker runtime
+- `redis`: cache, locks, queues, rate limits
+- `meilisearch`: product/category search
+- `migrate`: one-shot Prisma migration job
+
+Supabase PostgreSQL is external and is not started by Docker Compose.
+
+Startup ordering:
+
+- Redis and Meilisearch must be healthy.
+- `migrate` must complete successfully.
+- API and worker start after migrations and infrastructure are ready.
+- Web starts after API is healthy.
+
+## Healthchecks
+
+Automated healthcheck:
+
+```bash
+corepack pnpm healthcheck
+```
+
+The script validates:
+
+- frontend responds on `localhost:3000`
+- backend responds on `localhost:4000/health`
+- Prisma database readiness through `localhost:4000/health/ready`
+- Redis responds to `PING`
+- Meilisearch reports `available`
+
+Manual checks:
+
+```bash
+curl http://localhost:3000
+curl http://localhost:4000/health
+curl http://localhost:4000/health/ready
+curl http://localhost:7700/health
+docker compose --env-file .env exec redis redis-cli ping
+```
+
+## Meilisearch Bootstrap
+
+After login with an admin user, initialize indexes:
+
+```bash
+curl -X POST http://localhost:4000/search/admin/setup-indexes \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+To rebuild search documents:
+
+```bash
+curl -X POST http://localhost:4000/search/admin/rebuild \
+  -H "Authorization: Bearer <accessToken>" \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId":"<tenantId>"}'
+```
+
+## Troubleshooting
+
+Environment validation fails:
+
+- Check `.env` exists.
+- Replace all placeholder Supabase values.
+- Ensure JWT secrets are at least 32 characters.
+- Keep `DIRECT_URL` on a direct or session-safe Supabase connection.
+
+Prisma migrate fails:
+
+- Verify `DIRECT_URL`.
+- Avoid Supabase transaction pooler URLs for migrations.
+- Run `corepack pnpm db:generate` before retrying.
+
+API readiness says database is down:
+
+- Verify `DATABASE_URL`.
+- Confirm Supabase allows connections from your network.
+- Check API logs with `corepack pnpm docker:logs`.
+
+Redis is down:
+
+- Run `corepack pnpm infra:up`.
+- Check port `6379` is not already owned by another local Redis.
+
+Web is unhealthy:
+
+- Rebuild with `corepack pnpm docker:up`.
+- Confirm `NEXT_PUBLIC_API_URL=http://localhost:4000`.
+- Check that API is healthy before debugging the frontend.
 
 ## Engineering Tradeoffs
 
