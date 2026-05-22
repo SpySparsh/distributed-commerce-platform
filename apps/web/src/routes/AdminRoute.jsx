@@ -3,7 +3,9 @@ import { useAuth } from '../context/AuthContext';
 
 export default function AdminRoute({ children }) {
   const { user } = useAuth();
-  if (!user || user.role !== 'admin') {
+  const isAdmin = user?.roles?.includes('admin') || user?.permissions?.includes('search:admin');
+
+  if (!isAdmin) {
     return <Navigate to="/" replace />;
   }
   return children;

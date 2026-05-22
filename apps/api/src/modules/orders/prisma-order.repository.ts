@@ -383,6 +383,23 @@ export class PrismaOrderRepository implements OrderRepository {
     return order === null ? undefined : toOrderDto(order);
   }
 
+  async listUserOrders(tenantId: string, userId: string): Promise<readonly OrderDto[]> {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        tenantId,
+        userId,
+        deletedAt: null
+      },
+      include: orderInclude,
+      orderBy: {
+        createdAt: "desc"
+      },
+      take: 50
+    });
+
+    return orders.map(toOrderDto);
+  }
+
   async transitionOrder(input: TransitionOrderInput): Promise<OrderDto> {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findFirst({

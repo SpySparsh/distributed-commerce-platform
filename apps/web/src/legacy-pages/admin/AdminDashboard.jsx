@@ -7,6 +7,7 @@ export default function AdminDashboard() {
   const { accessToken } = useAuth();
   const [stats, setStats] = useState(null);
   const [topProducts, setTopProducts] = useState([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -20,8 +21,10 @@ export default function AdminDashboard() {
 
         setStats(statsRes.data);
         setTopProducts(topProductsRes.data);
+        setError('');
       } catch (err) {
         console.error('Failed to load admin data:', err.message);
+        setError(err.response?.data?.error?.message || 'Unable to load admin dashboard.');
       }
     };
 
@@ -31,6 +34,12 @@ export default function AdminDashboard() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
       <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+
+      {error && (
+        <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* Navigation Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -51,11 +60,13 @@ export default function AdminDashboard() {
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
           <StatCard title="Total Orders" value={stats.totalOrders} />
-          <StatCard title="Revenue" value={`₹${stats.revenue}`} />
+          <StatCard title="Revenue" value={`USD ${stats.revenue}`} />
           <StatCard title="Users" value={stats.userCount} />
+          <StatCard title="Products" value={stats.productCount} />
+          <StatCard title="Active Carts" value={stats.activeCartCount} />
           <StatCard
-            title="Delivered"
-            value={stats.ordersByStatus?.find(s => s._id === true)?.count || 0}
+            title="Fulfilled"
+            value={stats.ordersByStatus?.find(s => s.status === 'fulfilled')?.count || 0}
           />
         </div>
       )}
@@ -78,7 +89,7 @@ export default function AdminDashboard() {
                   <tr key={p._id} className="border-t">
                     <td className="p-2">{p.name}</td>
                     <td className="p-2">{p.totalSold}</td>
-                    <td className="p-2">₹{p.price}</td>
+                    <td className="p-2">{p.currency || 'USD'} {p.price}</td>
                   </tr>
                 ))}
               </tbody>

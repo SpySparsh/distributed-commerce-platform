@@ -4,41 +4,66 @@ import axios from '../api/axios';
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [auth, setAuth] = useState({ user: null, accessToken: null });
+  const [auth, setAuth] = useState({ user: null, accessToken: null, csrfToken: null });
+  const [isHydrating, setIsHydrating] = useState(true);
 
-  const login = (user, token) => {
-    setAuth({ user, accessToken: token });
+  const login = (user, token, csrfToken) => {
+    setAuth({ user, accessToken: token, csrfToken });
     localStorage.setItem('token', token);
+
+    if (csrfToken) {
+      localStorage.setItem('csrfToken', csrfToken);
+    }
   };
 
-  const logout = () => {
-    setAuth({ user: null, accessToken: null });
+  const logout = async () => {
+    try {
+      await axios.post('/auth/logout');
+    } catch (err) {
+      console.error('Logout failed', err);
+    }
+
+    setAuth({ user: null, accessToken: null, csrfToken: null });
     localStorage.removeItem('token');
+    localStorage.removeItem('csrfToken');
   };
 
-  // Optional: Load user from refresh token on mount
   useEffect(() => {
     const refresh = async () => {
-      const storedToken = localStorage.getItem('token');
-      if (!storedToken) return;
+      const csrfToken = localStorage.getItem('csrfToken');
+
+      if (!csrfToken) {
+        setIsHydrating(false);
+        return;
+      }
 
       try {
-        const res = await axios.post('/auth/refresh-token');
-        setAuth({ accessToken: res.data.accessToken, user: res.data.user });
+        const res = await axios.post('/auth/refresh', { csrfToken });
+        login(res.data.user, res.data.accessToken, res.data.csrfToken);
       } catch (err) {
         console.error('Token refresh failed', err);
+        localStorage.removeItem('token');
+        localStorage.removeItem('csrfToken');
+      } finally {
+        setIsHydrating(false);
       }
     };
+
     refresh();
   }, []);
 
-  useEffect(() => {
-    console.log('🔐 Auth State Changed:', auth);
-  }, [auth]);
-
-
   return (
-    <AuthContext.Provider value={{ accessToken: auth.accessToken, user: auth.user, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        accessToken: auth.accessToken,
+        csrfToken: auth.csrfToken,
+        user: auth.user,
+        isHydrating,
+        isAuthenticated: Boolean(auth.accessToken && auth.user),
+        login,
+        logout
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -5,8 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import axios from '../api/axios';
 
 export default function Checkout() {
-  const { cart, clearCart } = useCart();
-  const { accessToken } = useAuth();
+  const { cart, cartId, clearCart } = useCart();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 
@@ -39,88 +39,47 @@ export default function Checkout() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    let orderItems = [];
-    let totalPrice = 0;
-
-    if (buyNowItem) {
-      orderItems = [{ product: buyNowItem.product._id, quantity: buyNowItem.qty }];
-      totalPrice = buyNowItem.product.price * buyNowItem.qty;
-    } else {
-      orderItems = cart.map(item => ({
-        product: item._id,
-        quantity: item.qty,
-      }));
-      totalPrice = cart.reduce((acc, item) => acc + item.price * item.qty, 0);
-    }
-
-    if (!orderItems.length) return alert('No items to order');
+    if (!cartId) return alert('Cart is not ready yet');
+    if (!cart.length && !buyNowItem) return alert('No items to order');
+    if (!user?.email) return alert('Please login before checkout');
 
     try {
       setLoading(true);
+      const provider = paymentMethod === 'UPI' ? 'razorpay' : 'stripe';
+      const { data: checkout } = await axios.post('/checkout/start', {
+        cartId,
+        email: user.email,
+        shippingAddress: shipping,
+        billingAddress: shipping,
+        provider,
+        idempotencyKey: `${cartId}-${Date.now()}`
+      });
 
-      if (paymentMethod === 'COD') {
-        await axios.post(
-          '/orders',
-          { orderItems, shippingInfo: shipping, paymentMethod, totalPrice },
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
-        if (buyNowItem) localStorage.removeItem('buyNow');
-        else clearCart();
-        return navigate('/orders');
+      if (provider === 'razorpay' && checkout.payment?.providerOrderId && window.Razorpay) {
+        const options = {
+          key: razorpayKey || checkout.payment.publishableKey,
+          amount: Number(checkout.payment.payment.amount) * 100,
+          currency: checkout.payment.payment.currency,
+          name: 'MyShop',
+          description: 'Order Payment',
+          order_id: checkout.payment.providerOrderId,
+          prefill: {
+            email: user.email,
+            contact: shipping.phone
+          },
+          theme: { color: '#3399cc' }
+        };
+
+        new window.Razorpay(options).open();
       }
 
-      // For Razorpay Payment
-      const { data: order } = await axios.post('/payment/order', 
-        { amount: totalPrice },
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-      const options = {
-        key: razorpayKey,
-        amount: order.amount,
-        currency: 'INR',
-        name: 'Your Store Name',
-        description: 'Order Payment',
-        order_id: order.id,
-        handler: async function (response) {
-          // On success
-          await axios.post(
-            '/orders',
-            {
-              orderItems,
-              shippingInfo: shipping,
-              paymentMethod,
-              totalPrice,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpaySignature: response.razorpay_signature
-            },
-            {
-              headers: { Authorization: `Bearer ${accessToken}` }
-            }
-          );
-          if (buyNowItem) localStorage.removeItem('buyNow');
-          else clearCart();
-          navigate('/orders');
-        },
-        prefill: {
-          name: 'Customer Name',
-          email: 'customer@example.com',
-          contact: shipping.phone
-        },
-        theme: { color: '#3399cc' }
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.open();
+      if (buyNowItem) localStorage.removeItem('buyNow');
+      else clearCart();
+      navigate(`/order/${checkout.order.id}`);
 
     } catch (err) {
       console.error('Payment/order error:', err);
-      alert(err.response?.data?.message || 'Order/payment failed');
+      alert(err.response?.data?.error?.message || err.response?.data?.message || 'Order/payment failed');
     } finally {
       setLoading(false);
     }

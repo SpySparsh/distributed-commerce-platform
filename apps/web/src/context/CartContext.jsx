@@ -1,100 +1,179 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import axios from '../api/axios';
+import { useAuth } from './AuthContext';
 
 const CartContext = createContext();
 
-export const CartProvider = ({ children }) => {
-  const [cart, setCart] = useState([]);
+const cartStorageKey = 'activeCartId';
 
-  // ✅ Dynamically get token inside functions
-  const getToken = () => localStorage.getItem('token');
+const toLegacyCartItems = (cart) =>
+  (cart?.items ?? []).map((item) => ({
+    _id: item.variantId,
+    productId: item.productId,
+    variantId: item.variantId,
+    name: item.name || item.sku || item.variantId,
+    sku: item.sku,
+    qty: item.quantity,
+    price: Number(item.unitPrice),
+    unitPrice: item.unitPrice,
+    currency: item.currency,
+    countInStock: 99
+  }));
+
+export const CartProvider = ({ children }) => {
+  const { isAuthenticated, isHydrating } = useAuth();
+  const [cart, setCart] = useState([]);
+  const [cartId, setCartId] = useState(null);
+
+  const persistCart = (nextCart) => {
+    setCart(toLegacyCartItems(nextCart));
+    setCartId(nextCart.id);
+    localStorage.setItem(cartStorageKey, nextCart.id);
+  };
+
+  const getOrCreateCart = async () => {
+    if (!isAuthenticated) {
+      throw new Error('Please login to use your cart.');
+    }
+
+    const storedCartId = localStorage.getItem(cartStorageKey);
+
+    if (storedCartId) {
+      try {
+        const res = await axios.get(`/carts/${storedCartId}`);
+        persistCart(res.data);
+        return res.data;
+      } catch {
+        localStorage.removeItem(cartStorageKey);
+      }
+    }
+
+    const res = await axios.post('/carts');
+    persistCart(res.data.cart ?? res.data);
+    return res.data.cart ?? res.data;
+  };
 
   const fetchCart = async () => {
     try {
-      const res = await axios.get('/cart', {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      setCart(res.data);
+      await getOrCreateCart();
     } catch (err) {
-      console.error('Fetch cart error:', err.response?.data || err.message);
+      if (err.response?.status !== 401) {
+        console.error('Fetch cart error:', err.response?.data || err.message);
+      }
     }
+  };
+
+  const resolveProductForCart = async (product) => {
+    if (product.variantId && product._id) {
+      return product;
+    }
+
+    const lookupKey = product.slug || product._id;
+    const res = await axios.get(`/products/${lookupKey}`);
+    const detail = res.data;
+    const variant = detail.variants?.[0];
+
+    if (!variant) {
+      throw new Error('Product has no purchasable variant.');
+    }
+
+    return {
+      ...detail,
+      _id: detail.id,
+      variantId: variant.id,
+      sku: variant.sku,
+      price: variant.price,
+      currency: variant.currency,
+      countInStock: variant.availableQuantity
+    };
   };
 
   const addToCart = async (product, qty = 1) => {
+    if (!isAuthenticated) {
+      alert('Please login to add items to your cart.');
+      return;
+    }
+
     try {
-      console.log('Adding to cart →', {
-  url: '/cart',
-  token: localStorage.getItem('token'),
-  body: { productId: product._id, quantity: qty }
-});
-      await axios.post(
-        '/cart',
-        { productId: product._id, quantity: qty },
-        {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        }
-      );
-      fetchCart();
+      const activeCart = await getOrCreateCart();
+      const cartProduct = await resolveProductForCart(product);
+      const res = await axios.put(`/carts/${activeCart.id}/items`, {
+        productId: cartProduct._id,
+        variantId: cartProduct.variantId,
+        quantity: qty,
+        unitPrice: String(cartProduct.price),
+        currency: cartProduct.currency || 'USD'
+      });
+
+      persistCart(res.data.cart ?? res.data);
     } catch (err) {
       console.error('Add to cart error:', err.response?.data || err.message);
+      alert(err.response?.data?.error?.message || err.message || 'Add to cart failed');
     }
   };
 
-  const removeFromCart = async (productId) => {
+  const removeFromCart = async (variantId) => {
     try {
-      await axios.delete(`/cart/${productId}`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      fetchCart();
+      const activeCartId = cartId || localStorage.getItem(cartStorageKey);
+
+      if (!activeCartId) {
+        return;
+      }
+
+      const res = await axios.delete(`/carts/${activeCartId}/items/${variantId}`);
+      persistCart(res.data.cart ?? res.data);
     } catch (err) {
       console.error('Remove error:', err.response?.data || err.message);
     }
   };
 
-  const updateQty = async (productId, qty) => {
+  const updateQty = async (variantId, qty) => {
     try {
-      await axios.put(
-        `/cart/${productId}`,
-        { quantity: qty },
-        {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        }
-      );
-      fetchCart();
+      const activeCartId = cartId || localStorage.getItem(cartStorageKey);
+      const currentItem = cart.find((item) => item.variantId === variantId);
+
+      if (!activeCartId || !currentItem) {
+        return;
+      }
+
+      const res = await axios.put(`/carts/${activeCartId}/items`, {
+        productId: currentItem.productId,
+        variantId,
+        quantity: qty,
+        unitPrice: String(currentItem.price),
+        currency: currentItem.currency || 'USD'
+      });
+
+      persistCart(res.data.cart ?? res.data);
     } catch (err) {
       console.error('Update qty error:', err.response?.data || err.message);
     }
   };
 
   const clearCart = async () => {
-    try {
-      const res = await axios.get('/cart', {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      for (const item of res.data) {
-      if (item?._id) {
-        await axios.delete(`/cart/${item._id}`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-      } else {
-        console.warn('Invalid cart item:', item);
-      }
-      }
-
-      fetchCart();
-    } catch (err) {
-      console.error('Clear cart failed:', err.message);
+    for (const item of cart) {
+      await removeFromCart(item.variantId);
     }
   };
 
-  // ✅ Fetch cart on component mount
   useEffect(() => {
+    if (isHydrating) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setCart([]);
+      setCartId(null);
+      localStorage.removeItem(cartStorageKey);
+      return;
+    }
+
     fetchCart();
-  }, []);
+  }, [isAuthenticated, isHydrating]);
 
   return (
     <CartContext.Provider
-      value={{ cart, addToCart, removeFromCart, updateQty, clearCart }}
+      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart }}
     >
       {children}
     </CartContext.Provider>

@@ -6,6 +6,7 @@ import type { OrderDto, OrderEventDto } from "./order.types.js";
 export interface OrderService {
   createOrder(input: CreateOrderBody, actor: OrderActor): Promise<OrderDto>;
   getOrder(tenantId: string, orderId: string): Promise<OrderDto | undefined>;
+  listUserOrders(tenantId: string, userId: string): Promise<readonly OrderDto[]>;
   transitionOrder(orderId: string, input: TransitionOrderBody, actor: OrderActor): Promise<OrderDto>;
   listEvents(tenantId: string, orderId: string): Promise<readonly OrderEventDto[]>;
   requestInvoice(tenantId: string, orderId: string, actor: OrderActor): Promise<{ readonly order: OrderDto; readonly jobId: string }>;
@@ -21,6 +22,10 @@ export const createOrderService = (
 
   getOrder(tenantId, orderId) {
     return repository.findOrder(tenantId, orderId);
+  },
+
+  listUserOrders(tenantId, userId) {
+    return repository.listUserOrders(tenantId, userId);
   },
 
   transitionOrder(orderId, input, actor) {

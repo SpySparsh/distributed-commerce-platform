@@ -20,6 +20,7 @@ export interface TransitionOrderInput {
 export interface OrderRepository {
   createOrder(input: CreateOrderBody, actor: OrderActor): Promise<OrderDto>;
   findOrder(tenantId: string, orderId: string): Promise<OrderDto | undefined>;
+  listUserOrders(tenantId: string, userId: string): Promise<readonly OrderDto[]>;
   transitionOrder(input: TransitionOrderInput): Promise<OrderDto>;
   listOrderEvents(tenantId: string, orderId: string): Promise<readonly OrderEventDto[]>;
   markInvoiceRequested(tenantId: string, orderId: string, actor: OrderActor): Promise<OrderDto>;

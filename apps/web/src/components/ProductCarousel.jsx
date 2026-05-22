@@ -10,7 +10,13 @@ export default function ProductCarousel({ category }) {
 
   useEffect(() => {
     const fetch = async () => {
-      const res = await axios.get(`/products?category=${category}&limit=10`);
+      const categorySlug = category.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const res = await axios.get('/products', {
+        params: {
+          categorySlug,
+          limit: 10
+        }
+      });
       setProducts(res.data.products || []);
     };
     fetch();
@@ -85,7 +91,7 @@ export default function ProductCarousel({ category }) {
       >
         {loopedProducts.map((p, index) => (
           <Link
-          to={`/product/${p._id}`}
+          to={`/product/${p.slug || p._id}`}
           key={index}
           className="w-[23%] sm:w-[30%] md:w-[22%] lg:w-[18%] flex-shrink-0 bg-white rounded-lg shadow hover:shadow-md transition p-2"
         >

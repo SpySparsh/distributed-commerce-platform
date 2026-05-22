@@ -16,12 +16,32 @@ export default function ProductForm({ isNew }) {
     countInStock: '',
     image: ''
   });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const buildProductPayload = () => {
+    const payload = {
+      name: form.name.trim(),
+      description: form.description.trim(),
+      price: Number(form.price).toFixed(2),
+      category: form.category.trim(),
+      countInStock: Number(form.countInStock)
+    };
+
+    if (form.image.trim().length > 0) {
+      payload.image = form.image.trim();
+    }
+
+    return payload;
+  };
 
   useEffect(() => {
     if (!isNew && id) {
-      axios.get(`/products/${id}`).then(res => {
+      axios.get(`/admin/products/${id}`).then(res => {
         const { name, description, price, category, countInStock, image } = res.data;
-        setForm({ name, description, price, category, countInStock, image });
+        setForm({ name, description, price, category, countInStock, image: image || '' });
+      }).catch(err => {
+        setError(err.response?.data?.error?.message || 'Unable to load product.');
       });
     }
   }, [isNew, id]);
@@ -35,18 +55,27 @@ export default function ProductForm({ isNew }) {
     const config = {
       headers: { Authorization: `Bearer ${accessToken}` }
     };
+    const payload = buildProductPayload();
 
     try {
+      setSaving(true);
+      setError('');
       if (isNew) {
-        await axios.post('/products', form, config);
+        await axios.post('/admin/products', payload, config);
         alert('Product created successfully');
       } else {
-        await axios.put(`/products/${id}`, form, config);
+        await axios.put(`/admin/products/${id}`, payload, config);
         alert('Product updated successfully');
       }
       navigate('/admin/products');
     } catch (err) {
-      alert(err.response?.data?.message || 'Error saving product');
+      const fieldErrors = err.response?.data?.error?.fieldErrors;
+      const message = fieldErrors
+        ? Object.entries(fieldErrors).map(([field, messages]) => `${field}: ${messages.join(', ')}`).join('\n')
+        : err.response?.data?.error?.message || err.response?.data?.message || 'Error saving product';
+      setError(message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -55,6 +84,12 @@ export default function ProductForm({ isNew }) {
       <h1 className="text-2xl font-bold mb-6">
         {isNew ? 'Add New Product' : 'Edit Product'}
       </h1>
+
+      {error && (
+        <div className="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm whitespace-pre-line text-red-700">
+          {error}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-4 bg-white p-6 shadow rounded">
         <input
@@ -117,8 +152,8 @@ export default function ProductForm({ isNew }) {
           onChange={handleChange}
         />
 
-        <button className="btn-primary w-full" type="submit">
-          {isNew ? 'Create Product' : 'Update Product'}
+        <button className="btn-primary w-full" type="submit" disabled={saving}>
+          {saving ? 'Saving...' : isNew ? 'Create Product' : 'Update Product'}
         </button>
       </form>
     </div>

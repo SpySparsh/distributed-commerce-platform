@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { adminRoutes } from "../modules/admin/admin.routes.js";
 import { authRoutes } from "../modules/auth/auth.routes.js";
 import { cartRoutes } from "../modules/carts/cart.routes.js";
 import { checkoutRoutes } from "../modules/checkout/checkout.routes.js";
@@ -9,11 +10,13 @@ import { orderRoutes } from "../modules/orders/order.routes.js";
 import { paymentRoutes } from "../modules/payments/payment.routes.js";
 import { productRoutes } from "../modules/products/product.routes.js";
 import { searchRoutes } from "../modules/search/search.routes.js";
+import { tenantRoutes } from "../modules/tenants/tenant.routes.js";
 import { createAppRepositories } from "../repositories.js";
 
 export const registerRoutes = async (app: FastifyInstance): Promise<void> => {
   const repositories = createAppRepositories(app.prisma, app.config);
 
+  await app.register(adminRoutes, { prefix: "/admin" });
   await app.register(authRoutes, { prefix: "/auth", repository: repositories.auth });
   await app.register(eventRoutes, { prefix: "/events", repository: repositories.eventLog });
   await app.register(cartRoutes, {
@@ -30,5 +33,6 @@ export const registerRoutes = async (app: FastifyInstance): Promise<void> => {
     repository: repositories.payment
   });
   await app.register(searchRoutes, { prefix: "/search" });
+  await app.register(tenantRoutes, { prefix: "/tenants" });
   await app.register(healthRoutes, { prefix: "/health" });
 };

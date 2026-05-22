@@ -15,9 +15,12 @@ export default function Navbar() {
     }
   };
   const handleLogout = () => {
-    logout();
+    void logout();
     navigate('/login');
   };
+
+  const displayName = user?.firstName || user?.email;
+  const isAdmin = user?.roles?.includes('admin') || user?.permissions?.includes('search:admin');
 
   return (
     <nav className="bg-white shadow-md px-4 py-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-0">
@@ -50,10 +53,10 @@ export default function Navbar() {
 
     {user ? (
       <>
-        <span className="uppercase tracking-wide font-semibold text-gray-700 ">{user.name}</span>
+        <span className="uppercase tracking-wide font-semibold text-gray-700 ">{displayName}</span>
         <Link to="/orders" className="uppercase tracking-wide font-semibold text-gray-700 hover:text-blue-600">My Orders</Link>
 
-        {user.role === 'admin' && (
+        {isAdmin && (
           <Link to="/admin" className="uppercase tracking-wide font-semibold text-gray-700 hover:text-blue-600">
             Admin Dashboard
           </Link>

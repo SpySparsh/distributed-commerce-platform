@@ -55,6 +55,29 @@ export const orderRoutes: FastifyPluginAsync<OrderRouteOptions> = async (app, op
   );
 
   app.get(
+    "/my-orders",
+    {
+      preHandler: [
+        requirePermission(permissions.ordersRead),
+        withRateLimit({ keyPrefix: "orders:list:mine", maxRequests: 120 })
+      ]
+    },
+    async (request) => {
+      const orders = await service.listUserOrders(
+        getAuthenticatedTenantId(request),
+        getAuthenticatedUserId(request)
+      );
+
+      return {
+        ok: true,
+        data: {
+          orders
+        }
+      };
+    }
+  );
+
+  app.get(
     "/:orderId",
     {
       preHandler: [

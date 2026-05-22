@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from '../api/axios';
 import { useCart } from '../context/CartContext';
+import { Link } from 'react-router-dom';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -34,12 +35,14 @@ export default function Products() {
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {products.map((product) => (
           <div key={product._id} className="border rounded-lg p-4 shadow hover:shadow-lg">
-            <img
-              src={product.image || 'https://via.placeholder.com/150'}
-              alt={product.name}
-              className="w-full h-40 object-cover rounded"
-            />
-            <h2 className="mt-2 font-semibold">{product.name}</h2>
+            <Link to={`/product/${product.slug || product._id}`}>
+              <img
+                src={product.image || 'https://via.placeholder.com/150'}
+                alt={product.name}
+                className="w-full h-40 object-cover rounded"
+              />
+              <h2 className="mt-2 font-semibold">{product.name}</h2>
+            </Link>
             <p className="text-sm text-gray-600">{product.category}</p>
 
             {/* ⭐ Star Rating */}

@@ -36,7 +36,7 @@ export default function Home() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1  sm:gap-6 px-1 md:px-4">
         {products.map((product) => (
           <div key={product._id} className="bg-white border border-gray-300 rounded-lg shadow-md hover:shadow-2xl transition duration-300">
-            <Link to={`/product/${product._id}`} className="block p-4 hover:bg-gray-100 rounded-t-lg">
+            <Link to={`/product/${product.slug || product._id}`} className="block p-4 hover:bg-gray-100 rounded-t-lg">
               <img
                 src={product.image || 'https://via.placeholder.com/150'}
                 alt={product.name}

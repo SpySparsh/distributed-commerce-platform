@@ -120,15 +120,44 @@ export class PrismaAuthRepository implements AuthRepository {
   }
 
   async createUser(input: CreateUserInput): Promise<AuthUserRecord> {
-    const user = await this.prisma.user.create({
-      data: {
-        tenantId: input.tenantId,
-        email: input.email,
-        passwordHash: input.passwordHash,
-        ...(input.firstName === undefined ? {} : { firstName: input.firstName }),
-        ...(input.lastName === undefined ? {} : { lastName: input.lastName })
-      },
-      include: userInclude
+    const user = await this.prisma.$transaction(async (tx) => {
+      const customerRole = await tx.role.findUnique({
+        where: {
+          tenantId_key: {
+            tenantId: input.tenantId,
+            key: "customer"
+          }
+        }
+      });
+
+      if (customerRole === null) {
+        throw new Error("Customer role is not configured for this tenant");
+      }
+
+      const createdUser = await tx.user.create({
+        data: {
+          tenantId: input.tenantId,
+          email: input.email,
+          passwordHash: input.passwordHash,
+          ...(input.firstName === undefined ? {} : { firstName: input.firstName }),
+          ...(input.lastName === undefined ? {} : { lastName: input.lastName })
+        }
+      });
+
+      await tx.userRole.create({
+        data: {
+          tenantId: input.tenantId,
+          userId: createdUser.id,
+          roleId: customerRole.id
+        }
+      });
+
+      return tx.user.findUniqueOrThrow({
+        where: {
+          id: createdUser.id
+        },
+        include: userInclude
+      });
     });
 
     return toUserRecord(user);

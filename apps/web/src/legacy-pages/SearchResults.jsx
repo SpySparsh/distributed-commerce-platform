@@ -2,6 +2,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import axios from '../api/axios';
 import StarRating from '../components/StarRating';
+import { useCart } from '../context/CartContext';
 
 export default function SearchResults() {
   const { search } = useLocation();
@@ -9,13 +10,18 @@ export default function SearchResults() {
   const keyword = params.get('q');
 
   const [products, setProducts] = useState([]);
+  const { addToCart } = useCart();
 
   useEffect(() => {
     if (!keyword) return;
 
     const fetch = async () => {
       try {
-        const res = await axios.get(`/products?keyword=${encodeURIComponent(keyword)}`);
+        const res = await axios.get('/products', {
+          params: {
+            q: keyword
+          }
+        });
         setProducts(res.data.products || []); // adjust if needed
       } catch (err) {
         console.error('Search failed:', err.message);
@@ -35,7 +41,7 @@ export default function SearchResults() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 sm:gap-6">
           {products.map((product) => (
             <div key={product._id} className="bg-white border border-gray-300 rounded-lg shadow-md hover:shadow-2xl transition duration-300">
-            <Link to={`/product/${product._id}`} className="block p-4 hover:bg-gray-50 rounded-t-lg">
+            <Link to={`/product/${product.slug || product._id}`} className="block p-4 hover:bg-gray-50 rounded-t-lg">
                 <img
                 src={product.image || 'https://via.placeholder.com/150'}
                 alt={product.name}

@@ -10,7 +10,7 @@ export default function AllUsers() {
 
   const fetchUsers = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/users', {
+      const res = await axios.get('/admin/users', {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
@@ -29,7 +29,7 @@ export default function AllUsers() {
   const deleteUser = async (id) => {
     if (!window.confirm('Are you sure you want to delete this user?')) return;
     try {
-      await axios.delete(`http://localhost:5000/api/users/${id}`, {
+      await axios.delete(`/admin/users/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       setUsers((prev) => prev.filter((u) => u._id !== id));
@@ -40,7 +40,7 @@ export default function AllUsers() {
 
   const promoteUser = async (id) => {
     try {
-      await axios.put(`http://localhost:5000/api/users/${id}/promote`, {}, {
+      await axios.put(`/admin/users/${id}/promote`, {}, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       fetchUsers();
