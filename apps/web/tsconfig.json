@@ -14,8 +14,13 @@
       ],
       "@ecommerce/ui": [
         "packages/ui/src/index.ts"
+      ],
+      "react-router-dom": [
+        "apps/web/src/lib/router.tsx"
       ]
     },
+    "allowJs": true,
+    "checkJs": false,
     "esModuleInterop": true
   },
   "include": [
@@ -23,6 +28,8 @@
     "next.config.mjs",
     "src/**/*.ts",
     "src/**/*.tsx",
+    "src/**/*.js",
+    "src/**/*.jsx",
     ".next/types/**/*.ts"
   ],
   "exclude": [

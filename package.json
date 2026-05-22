@@ -37,6 +37,7 @@
     "db:reset": "pnpm --filter @ecommerce/database db:reset"
   },
   "devDependencies": {
+    "@eslint/js": "^9.29.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
+import "./globals.css";
+import { AppShell } from "./app-shell";
 
 export const metadata = {
-  title: "Ecommerce Platform",
-  description: "Scalable ecommerce platform"
+  title: "MyShop Ecommerce",
+  description: "Production-grade ecommerce storefront"
 };
 
 interface RootLayoutProps {
@@ -12,7 +14,9 @@ interface RootLayoutProps {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

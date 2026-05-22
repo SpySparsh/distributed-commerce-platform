@@ -1,7 +1,7 @@
+"use client";
+
+import Home from "../legacy-pages/Home.jsx";
+
 export default function HomePage() {
-  return (
-    <main>
-      <h1>Ecommerce Platform</h1>
-    </main>
-  );
+  return <Home />;
 }
