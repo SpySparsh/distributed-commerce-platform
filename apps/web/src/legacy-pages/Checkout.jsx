@@ -32,7 +32,15 @@ const clearCheckoutIdempotencyKey = (cartId) => {
 };
 
 export default function Checkout() {
-  const { cart, resetCart, createFreshCart, getOrCreateActiveCart } = useCart();
+  const {
+    cart,
+    resetCart,
+    createFreshCart,
+    getOrCreateActiveCart,
+    resetCartLifecycle,
+    isStaleCartError,
+    getStaleCartMessage
+  } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
@@ -51,11 +59,17 @@ export default function Checkout() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (loading) {
+      return;
+    }
+
     if (!user?.email) return alert('Please login before checkout');
+
+    let activeCart;
 
     try {
       setLoading(true);
-      const activeCart = await getOrCreateActiveCart();
+      activeCart = await getOrCreateActiveCart();
 
       if (!activeCart?.id) return alert('Cart is not ready yet');
       if (!activeCart.items?.length) return alert('No items to order');
@@ -142,6 +156,16 @@ export default function Checkout() {
 
     } catch (err) {
       console.error('Payment/order error:', err);
+      if (isStaleCartError?.(err)) {
+        const message = getStaleCartMessage?.(err) || 'Your previous order was already completed. A new cart has been started.';
+        if (activeCart?.id) {
+          clearCheckoutIdempotencyKey(activeCart.id);
+        }
+        await resetCartLifecycle?.('checkout-stale-cart-conflict');
+        alert(message);
+        return;
+      }
+
       alert(err.response?.data?.error?.message || err.response?.data?.message || 'Order/payment failed');
     } finally {
       setLoading(false);

@@ -8,7 +8,11 @@ const cartStorageKey = 'activeCartId';
 
 const normalizeCart = (responseData) => responseData?.cart ?? responseData;
 
-const isActiveCart = (nextCart) => nextCart?.status === 'active';
+const getCartStatus = (nextCart) => String(nextCart?.status || '').toLowerCase();
+
+const isActiveCart = (nextCart) => getCartStatus(nextCart) === 'active';
+
+const isCompletedCart = (nextCart) => ['completed', 'converted', 'checked_out'].includes(getCartStatus(nextCart));
 
 const isStaleCartError = (err) => {
   const status = err.response?.status;
@@ -21,6 +25,9 @@ const isStaleCartError = (err) => {
     code === 'CHECKOUT_CART_ALREADY_CHECKED_OUT'
   );
 };
+
+const getStaleCartMessage = (err) =>
+  err.response?.data?.error?.message || 'Your previous order was already completed. A new cart has been started.';
 
 const toLegacyCartItems = (cart) =>
   (cart?.items ?? []).map((item) => ({
@@ -67,6 +74,14 @@ export const CartProvider = ({ children }) => {
     return nextCart;
   };
 
+  const resetCartLifecycle = async (reason = 'stale-cart') => {
+    console.warn('[cart] resetting cart lifecycle', {
+      reason,
+      previousCartId: localStorage.getItem(cartStorageKey)
+    });
+    return await createFreshCart(reason);
+  };
+
   const getOrCreateActiveCart = async () => {
     if (!isAuthenticated) {
       throw new Error('Please login to use your cart.');
@@ -78,16 +93,17 @@ export const CartProvider = ({ children }) => {
       try {
         const res = await axios.get(`/carts/${storedCartId}`);
         const existingCart = normalizeCart(res.data);
-        console.info('[cart] loaded stored cart', { cartId: storedCartId, status: existingCart.status });
 
         if (isActiveCart(existingCart)) {
+          console.info('[cart] loaded active stored cart', { cartId: storedCartId, status: existingCart.status });
           persistCart(existingCart);
           return existingCart;
         }
 
-        console.warn('[cart] replacing stale non-active cart', {
+        console.warn('[cart] blocked stale stored cart rehydration', {
           cartId: storedCartId,
-          status: existingCart.status
+          status: existingCart.status,
+          completed: isCompletedCart(existingCart)
         });
       } catch (err) {
         console.warn('[cart] replacing missing/unusable stored cart', {
@@ -98,7 +114,7 @@ export const CartProvider = ({ children }) => {
       }
     }
 
-    return await createFreshCart('missing-or-stale-cart');
+    return await resetCartLifecycle('missing-or-stale-cart');
   };
 
   const refreshCartById = async (nextCartId) => {
@@ -110,7 +126,7 @@ export const CartProvider = ({ children }) => {
         cartId: nextCart.id,
         status: nextCart.status
       });
-      return await createFreshCart('refresh-returned-non-active-cart');
+      return await resetCartLifecycle('refresh-returned-non-active-cart');
     }
 
     persistCart(nextCart);
@@ -198,7 +214,7 @@ export const CartProvider = ({ children }) => {
           status: activeCart.status,
           code: err.response?.data?.error?.code
         });
-        res = await addItemToBackend(await createFreshCart('add-to-cart-stale-cart'));
+        res = await addItemToBackend(await resetCartLifecycle('add-to-cart-stale-cart'));
       }
 
       const mutatedCart = normalizeCart(res.data);
@@ -284,7 +300,20 @@ export const CartProvider = ({ children }) => {
 
   return (
     <CartContext.Provider
-      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart, resetCart, createFreshCart, getOrCreateActiveCart }}
+      value={{
+        cart,
+        cartId,
+        addToCart,
+        removeFromCart,
+        updateQty,
+        clearCart,
+        resetCart,
+        createFreshCart,
+        getOrCreateActiveCart,
+        resetCartLifecycle,
+        isStaleCartError,
+        getStaleCartMessage
+      }}
     >
       {children}
     </CartContext.Provider>
