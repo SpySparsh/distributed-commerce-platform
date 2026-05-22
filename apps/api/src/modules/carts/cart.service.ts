@@ -46,7 +46,8 @@ const isOwnedBy = (cart: CartDto, owner?: CartOwner): boolean => {
 export interface CartService {
   getOrCreateCart(identity: CartIdentityQuery): Promise<CartDto>;
   getCart(tenantId: string, cartId: string, owner?: CartOwner): Promise<CartDto | undefined>;
-  upsertItem(tenantId: string, cartId: string, item: UpsertCartItemBody, owner?: CartOwner): Promise<CartDto>;
+  addItem(tenantId: string, cartId: string, item: UpsertCartItemBody, owner?: CartOwner): Promise<CartDto>;
+  setItemQuantity(tenantId: string, cartId: string, item: UpsertCartItemBody, owner?: CartOwner): Promise<CartDto>;
   removeItem(tenantId: string, cartId: string, variantId: string, owner?: CartOwner): Promise<CartDto | undefined>;
   mergeGuestCart(tenantId: string, sourceCartId: string, targetCartId: string): Promise<CartDto>;
   syncCart(tenantId: string, cartId: string, owner?: CartOwner): Promise<CartDto | undefined>;
@@ -99,7 +100,68 @@ export const createCartService = (
     return persisted;
   },
 
-  async upsertItem(tenantId, cartId, item, owner) {
+  async addItem(tenantId, cartId, item, owner) {
+    const lock = await acquireInventoryLock(redis, {
+      tenantId,
+      variantId: item.variantId
+    });
+
+    if (lock === undefined) {
+      throw Object.assign(new Error("Inventory is temporarily locked"), {
+        code: "INVENTORY_LOCKED",
+        statusCode: 409
+      });
+    }
+
+    try {
+      const existing = await this.getCart(tenantId, cartId, owner);
+
+      if (existing === undefined) {
+        throw Object.assign(new Error("Cart not found"), {
+          code: "CART_NOT_FOUND",
+          statusCode: 404
+        });
+      }
+
+      const existingItem = existing.items.find((cartItem) => cartItem.variantId === item.variantId);
+      const nextQuantity = (existingItem?.quantity ?? 0) + item.quantity;
+      const availability = await inventory.getAvailability(tenantId, item.variantId);
+
+      if (availability !== undefined && availability.availableQuantity < nextQuantity) {
+        throw Object.assign(new Error("Insufficient inventory for cart item"), {
+          code: "INSUFFICIENT_INVENTORY",
+          statusCode: 409
+        });
+      }
+
+      const now = new Date().toISOString();
+      const nextItems = [
+        ...existing.items.filter((existingItem) => existingItem.variantId !== item.variantId),
+        {
+          productId: item.productId,
+          variantId: item.variantId,
+          quantity: nextQuantity,
+          unitPrice: item.unitPrice,
+          currency: item.currency,
+          updatedAt: now
+        }
+      ];
+      const nextCart: CartDto = {
+        ...existing,
+        version: existing.version + 1,
+        items: nextItems,
+        updatedAt: now,
+        expiresAt: createExpiration().toISOString()
+      };
+
+      await saveCart(redis, toCachedCart(nextCart));
+      return nextCart;
+    } finally {
+      await releaseInventoryLock(redis, lock);
+    }
+  },
+
+  async setItemQuantity(tenantId, cartId, item, owner) {
     const lock = await acquireInventoryLock(redis, {
       tenantId,
       variantId: item.variantId

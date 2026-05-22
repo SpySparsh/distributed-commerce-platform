@@ -7,6 +7,7 @@ import type { OrderDto, OrderStatus } from "../orders/order.types.js";
 import { createPaymentProviderClient } from "../payments/payment.provider.js";
 import type { PaymentDto, PaymentInitiationDto, PaymentProvider, PaymentStatus } from "../payments/payment.types.js";
 import {
+  checkoutCartAlreadyCheckedOutError,
   checkoutCartEmptyError,
   checkoutCartMismatchError,
   checkoutCartNotFoundError,
@@ -409,13 +410,19 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
         id: input.cartId,
         tenantId: input.tenantId,
         userId: input.userId,
-        status: "active",
         deletedAt: null
+      },
+      select: {
+        status: true
       }
     });
 
     if (existing === null) {
       throw checkoutCartNotFoundError();
+    }
+
+    if (existing.status !== "active") {
+      throw checkoutCartAlreadyCheckedOutError();
     }
 
     await tx.cart.update({

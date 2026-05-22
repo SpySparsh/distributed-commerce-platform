@@ -104,6 +104,11 @@ const productSelect = {
   }
 } satisfies Prisma.ProductSelect;
 
+const productBaseSelect = {
+  id: true,
+  createdAt: true
+} satisfies Prisma.ProductSelect;
+
 const toImageDto = (image: ProductImageRow): ProductImageDto => ({
   id: image.id,
   url: image.url,
@@ -238,14 +243,34 @@ export class PrismaProductRepository implements ProductRepository {
       },
       orderBy: buildOrderBy(query.sort),
       take: query.limit + 1,
-      select: productSelect
+      select: productBaseSelect
     });
 
     const pageRows = rows.slice(0, query.limit);
     const nextRow = rows[query.limit];
+    const productIds = pageRows.map((row) => row.id);
+
+    if (productIds.length === 0) {
+      return { items: [] };
+    }
+
+    const productRows = await this.prisma.product.findMany({
+      where: {
+        tenantId: query.tenantId,
+        id: {
+          in: productIds
+        },
+        deletedAt: null
+      },
+      select: productSelect
+    });
+    const productsById = new Map(productRows.map((product) => [product.id, product]));
 
     return {
-      items: pageRows.map(toListItem),
+      items: pageRows.flatMap((row) => {
+        const product = productsById.get(row.id);
+        return product === undefined ? [] : [toListItem(product)];
+      }),
       ...(nextRow === undefined
         ? {}
         : {
@@ -258,11 +283,26 @@ export class PrismaProductRepository implements ProductRepository {
   }
 
   async findProductBySlug(tenantId: string, slug: string): Promise<ProductDetailDto | undefined> {
-    const product = await this.prisma.product.findFirst({
+    const productBase = await this.prisma.product.findFirst({
       where: {
         tenantId,
         slug,
         status: "active",
+        deletedAt: null
+      },
+      select: {
+        id: true
+      }
+    });
+
+    if (productBase === null) {
+      return undefined;
+    }
+
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productBase.id,
+        tenantId,
         deletedAt: null
       },
       select: productSelect

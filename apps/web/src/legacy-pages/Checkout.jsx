@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from '../api/axios';
 
 export default function Checkout() {
-  const { cart, cartId, resetCart } = useCart();
+  const { cart, cartId, resetCart, createFreshCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
@@ -71,6 +71,11 @@ export default function Checkout() {
 
       localStorage.removeItem('buyNow');
       resetCart();
+      try {
+        await createFreshCart();
+      } catch (freshCartError) {
+        console.warn('Order placed, but a fresh cart could not be created immediately:', freshCartError);
+      }
       navigate(`/order/${orderId}`);
 
     } catch (err) {

@@ -19,6 +19,9 @@ export const checkoutCartEmptyError = (): CheckoutError =>
 export const checkoutCartMismatchError = (): CheckoutError =>
   new CheckoutError("Cart snapshot does not match durable cart state", "CHECKOUT_CART_MISMATCH", 409);
 
+export const checkoutCartAlreadyCheckedOutError = (): CheckoutError =>
+  new CheckoutError("Cart has already been checked out. Please start a new cart.", "CHECKOUT_CART_ALREADY_CHECKED_OUT", 409);
+
 export const checkoutInventoryUnavailableError = (): CheckoutError =>
   new CheckoutError("Inventory is no longer available for checkout", "CHECKOUT_INVENTORY_UNAVAILABLE", 409);
 

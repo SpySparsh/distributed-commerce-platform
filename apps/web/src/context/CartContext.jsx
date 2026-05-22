@@ -53,6 +53,25 @@ export const CartProvider = ({ children }) => {
     return res.data.cart ?? res.data;
   };
 
+  const createFreshCart = async () => {
+    if (!isAuthenticated) {
+      throw new Error('Please login to use your cart.');
+    }
+
+    localStorage.removeItem(cartStorageKey);
+    const res = await axios.post('/carts');
+    const nextCart = res.data.cart ?? res.data;
+    persistCart(nextCart);
+    return nextCart;
+  };
+
+  const refreshCartById = async (nextCartId) => {
+    const res = await axios.get(`/carts/${nextCartId}`);
+    const nextCart = res.data.cart ?? res.data;
+    persistCart(nextCart);
+    return nextCart;
+  };
+
   const fetchCart = async () => {
     try {
       await getOrCreateCart();
@@ -102,7 +121,7 @@ export const CartProvider = ({ children }) => {
     try {
       const activeCart = await getOrCreateCart();
       const cartProduct = await resolveProductForCart(product);
-      const res = await axios.put(`/carts/${activeCart.id}/items`, {
+      const res = await axios.post(`/carts/${activeCart.id}/items`, {
         productId: cartProduct._id,
         variantId: cartProduct.variantId,
         quantity: qty,
@@ -110,9 +129,8 @@ export const CartProvider = ({ children }) => {
         currency: cartProduct.currency || 'USD'
       });
 
-      const nextCart = res.data.cart ?? res.data;
-      persistCart(nextCart);
-      return nextCart;
+      const mutatedCart = res.data.cart ?? res.data;
+      return await refreshCartById(mutatedCart.id);
     } catch (err) {
       console.error('Add to cart error:', err.response?.data || err.message);
       if (!options.silent) {
@@ -131,9 +149,8 @@ export const CartProvider = ({ children }) => {
       }
 
       const res = await axios.delete(`/carts/${activeCartId}/items/${variantId}`);
-      const nextCart = res.data.cart ?? res.data;
-      persistCart(nextCart);
-      return nextCart;
+      const mutatedCart = res.data.cart ?? res.data;
+      return await refreshCartById(mutatedCart.id);
     } catch (err) {
       console.error('Remove error:', err.response?.data || err.message);
     }
@@ -156,9 +173,8 @@ export const CartProvider = ({ children }) => {
         currency: currentItem.currency || 'USD'
       });
 
-      const nextCart = res.data.cart ?? res.data;
-      persistCart(nextCart);
-      return nextCart;
+      const mutatedCart = res.data.cart ?? res.data;
+      return await refreshCartById(mutatedCart.id);
     } catch (err) {
       console.error('Update qty error:', err.response?.data || err.message);
     }
@@ -193,7 +209,7 @@ export const CartProvider = ({ children }) => {
 
   return (
     <CartContext.Provider
-      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart, resetCart }}
+      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart, resetCart, createFreshCart }}
     >
       {children}
     </CartContext.Provider>

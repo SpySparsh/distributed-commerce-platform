@@ -122,7 +122,33 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
       const body = upsertCartItemBodySchema.parse(request.body);
       const tenantId = getAuthenticatedTenantId(request);
       const userId = getAuthenticatedUserId(request);
-      const cart = await cartService.upsertItem(tenantId, params.cartId, body, { userId });
+      const cart = await cartService.setItemQuantity(tenantId, params.cartId, body, { userId });
+
+      return {
+        ok: true,
+        data: {
+          cart
+        }
+      };
+    }
+  );
+
+  app.post(
+    "/:cartId/items",
+    {
+      preHandler: [
+        requirePermission(permissions.cartsWrite),
+        withRateLimit({ keyPrefix: "carts:item:add", maxRequests: 180 }),
+        validateRequest({ params: cartParamsSchema, query: cartIdentityQuerySchema, body: upsertCartItemBodySchema })
+      ]
+    },
+    async (request) => {
+      const params = cartParamsSchema.parse(request.params);
+      cartIdentityQuerySchema.parse(request.query);
+      const body = upsertCartItemBodySchema.parse(request.body);
+      const tenantId = getAuthenticatedTenantId(request);
+      const userId = getAuthenticatedUserId(request);
+      const cart = await cartService.addItem(tenantId, params.cartId, body, { userId });
 
       return {
         ok: true,
