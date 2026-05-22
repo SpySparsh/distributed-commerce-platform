@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import axios from '../api/axios';
 import { useAuth } from './AuthContext';
 
@@ -47,6 +47,22 @@ export const CartProvider = ({ children }) => {
   const { isAuthenticated, isHydrating } = useAuth();
   const [cart, setCart] = useState([]);
   const [cartId, setCartId] = useState(null);
+  const [checkoutLocked, setCheckoutLocked] = useState(false);
+  const checkoutLockedRef = useRef(false);
+
+  const beginCheckoutLock = () => {
+    checkoutLockedRef.current = true;
+    setCheckoutLocked(true);
+    console.info('[cart] checkout lock acquired', { cartId: localStorage.getItem(cartStorageKey) });
+  };
+
+  const endCheckoutLock = () => {
+    checkoutLockedRef.current = false;
+    setCheckoutLocked(false);
+    console.info('[cart] checkout lock released', { cartId: localStorage.getItem(cartStorageKey) });
+  };
+
+  const isCartMutationLocked = () => checkoutLockedRef.current;
 
   const persistCart = (nextCart) => {
     setCart(toLegacyCartItems(nextCart));
@@ -134,6 +150,11 @@ export const CartProvider = ({ children }) => {
   };
 
   const fetchCart = async () => {
+    if (isCartMutationLocked()) {
+      console.warn('[cart] fetch skipped while checkout is locked');
+      return;
+    }
+
     try {
       await getOrCreateActiveCart();
     } catch (err) {
@@ -169,6 +190,11 @@ export const CartProvider = ({ children }) => {
   };
 
   const addToCart = async (product, qty = 1, options = {}) => {
+    if (isCartMutationLocked()) {
+      console.warn('[cart] add-to-cart blocked while checkout is locked');
+      return;
+    }
+
     if (!isAuthenticated) {
       const message = 'Please login to add items to your cart.';
 
@@ -229,6 +255,11 @@ export const CartProvider = ({ children }) => {
   };
 
   const removeFromCart = async (variantId) => {
+    if (isCartMutationLocked()) {
+      console.warn('[cart] remove item blocked while checkout is locked', { variantId });
+      return;
+    }
+
     try {
       const activeCart = await getOrCreateActiveCart();
 
@@ -245,6 +276,11 @@ export const CartProvider = ({ children }) => {
   };
 
   const updateQty = async (variantId, qty) => {
+    if (isCartMutationLocked()) {
+      console.warn('[cart] quantity update blocked while checkout is locked', { variantId, quantity: qty });
+      return;
+    }
+
     try {
       const activeCart = await getOrCreateActiveCart();
       const currentItem = toLegacyCartItems(activeCart).find((item) => item.variantId === variantId);
@@ -276,6 +312,11 @@ export const CartProvider = ({ children }) => {
   };
 
   const clearCart = async () => {
+    if (isCartMutationLocked()) {
+      console.warn('[cart] clear cart blocked while checkout is locked');
+      return;
+    }
+
     for (const item of cart) {
       await removeFromCart(item.variantId);
     }
@@ -312,7 +353,10 @@ export const CartProvider = ({ children }) => {
         getOrCreateActiveCart,
         resetCartLifecycle,
         isStaleCartError,
-        getStaleCartMessage
+        getStaleCartMessage,
+        checkoutLocked,
+        beginCheckoutLock,
+        endCheckoutLock
       }}
     >
       {children}

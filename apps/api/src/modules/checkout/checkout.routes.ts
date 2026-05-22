@@ -61,6 +61,8 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
           cartId: body.cartId,
           tenantId,
           userId,
+          paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
+          razorpayConfigured: app.config.RAZORPAY_KEY_ID !== undefined && app.config.RAZORPAY_KEY_SECRET !== undefined,
           cachedCartFound: cachedCart !== undefined,
           cachedCartUserId: cachedCart?.userId,
           cachedCartGuestId: cachedCart?.guestId,
@@ -76,7 +78,13 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         request.log.info("STEP 2: reserve inventory");
         request.log.info("STEP 3: create order");
         request.log.info("STEP 4: create payment");
-        request.log.info("STEP 5: initialize payment provider");
+        request.log.info(
+          {
+            paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
+            razorpayKeyConfigured: app.config.RAZORPAY_KEY_ID !== undefined
+          },
+          "STEP 5: initialize payment provider"
+        );
         checkout = await options.repository.startCheckout({
         ...body,
         tenantId,
@@ -125,13 +133,15 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
       const tenantId = getAuthenticatedTenantId(request);
       const userId = getAuthenticatedUserId(request);
 
-      request.log.info(
+        request.log.info(
         {
           productId: body.productId,
           variantId: body.variantId,
           quantity: body.quantity,
           tenantId,
-          userId
+          userId,
+          paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
+          razorpayConfigured: app.config.RAZORPAY_KEY_ID !== undefined && app.config.RAZORPAY_KEY_SECRET !== undefined
         },
         "Starting buy-now checkout without cart mutation"
       );
@@ -143,7 +153,13 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         request.log.info("BUY_NOW STEP 2: reserve inventory");
         request.log.info("BUY_NOW STEP 3: create order");
         request.log.info("BUY_NOW STEP 4: create payment");
-        request.log.info("BUY_NOW STEP 5: initialize payment provider");
+        request.log.info(
+          {
+            paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
+            razorpayKeyConfigured: app.config.RAZORPAY_KEY_ID !== undefined
+          },
+          "BUY_NOW STEP 5: initialize payment provider"
+        );
         checkout = await options.repository.startBuyNowCheckout({
           ...body,
           tenantId,

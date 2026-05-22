@@ -39,7 +39,9 @@ export default function Checkout() {
     getOrCreateActiveCart,
     resetCartLifecycle,
     isStaleCartError,
-    getStaleCartMessage
+    getStaleCartMessage,
+    beginCheckoutLock,
+    endCheckoutLock
   } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -88,6 +90,7 @@ export default function Checkout() {
 
     let activeCart;
     let idempotencyScope;
+    let releaseCheckoutLock = false;
 
     try {
       setLoading(true);
@@ -97,6 +100,9 @@ export default function Checkout() {
       if (!isBuyNow && !activeCart?.id) return alert('Cart is not ready yet');
       if (!isBuyNow && !activeCart.items?.length) return alert('No items to order');
       if (isBuyNow && buyNowPayload === undefined) return alert('Buy Now checkout is not ready yet');
+
+      beginCheckoutLock?.();
+      releaseCheckoutLock = true;
 
       const provider =
         paymentMethod === 'UPI'
@@ -157,38 +163,46 @@ export default function Checkout() {
           },
           theme: { color: '#3399cc' },
           handler: async (response) => {
-            await axios.post('/payments/verify', {
-              provider: 'razorpay',
-              paymentId: checkout.payment.payment.id,
-              providerOrderId: checkout.payment.providerOrderId,
-              providerPaymentId: response.razorpay_payment_id,
-              signature: response.razorpay_signature
-            });
-            clearCheckoutIdempotencyKey(idempotencyScope);
-            localStorage.removeItem('buyNowCheckout');
+            try {
+              await axios.post('/payments/verify', {
+                provider: 'razorpay',
+                paymentId: checkout.payment.payment.id,
+                providerOrderId: checkout.payment.providerOrderId,
+                providerPaymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature
+              });
+              clearCheckoutIdempotencyKey(idempotencyScope);
+              localStorage.removeItem('buyNowCheckout');
 
-            if (!isBuyNow) {
-              resetCart();
-              try {
-                await createFreshCart('razorpay-payment-returned');
-              } catch (freshCartError) {
-                console.warn('Payment returned, but a fresh cart could not be created immediately:', freshCartError);
+              if (!isBuyNow) {
+                resetCart();
+                try {
+                  await createFreshCart('razorpay-payment-returned');
+                } catch (freshCartError) {
+                  console.warn('Payment returned, but a fresh cart could not be created immediately:', freshCartError);
+                }
               }
-            }
 
-            const orderId = checkout.order?.id || checkout.order?._id || checkout.id || checkout._id;
-            if (orderId) {
-              navigate(`/order/${orderId}`);
+              const orderId = checkout.order?.id || checkout.order?._id || checkout.id || checkout._id;
+              if (orderId) {
+                navigate(`/order/${orderId}`);
+              }
+            } finally {
+              endCheckoutLock?.();
+              setLoading(false);
             }
           },
           modal: {
             ondismiss: () => {
               console.warn('Razorpay checkout was dismissed; cart/order state was left unchanged for retry.');
+              endCheckoutLock?.();
+              setLoading(false);
             }
           }
         };
 
         new window.Razorpay(options).open();
+        releaseCheckoutLock = false;
         return;
       }
 
@@ -235,6 +249,9 @@ export default function Checkout() {
 
       alert(err.response?.data?.error?.message || err.response?.data?.message || 'Order/payment failed');
     } finally {
+      if (releaseCheckoutLock) {
+        endCheckoutLock?.();
+      }
       setLoading(false);
     }
   };
