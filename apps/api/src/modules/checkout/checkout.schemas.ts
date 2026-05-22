@@ -8,7 +8,7 @@ export const startCheckoutBodySchema = z.object({
   email: z.email(),
   shippingAddress: addressSchema,
   billingAddress: addressSchema.optional(),
-  provider: z.enum(["stripe", "razorpay"]).optional(),
+  provider: z.enum(["stripe", "razorpay", "cod"]).optional(),
   idempotencyKey: z.string().min(16).max(128)
 });
 

@@ -11,6 +11,7 @@ import type {
 import type {
   PaymentDto,
   PaymentInitiationDto,
+  OnlinePaymentProvider,
   PaymentProvider,
   VerifiedPaymentWebhook
 } from "./payment.types.js";
@@ -20,7 +21,7 @@ export interface PaymentService {
   initiatePayment(input: InitiatePaymentBody): Promise<PaymentInitiationDto>;
   getPayment(tenantId: string, paymentId: string): Promise<PaymentDto | undefined>;
   handleWebhook(input: {
-    readonly provider: PaymentProvider;
+    readonly provider: OnlinePaymentProvider;
     readonly rawBody: string;
     readonly signature: string | undefined;
   }): Promise<{ readonly processed: boolean; readonly payment?: PaymentDto }>;

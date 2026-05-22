@@ -45,7 +45,12 @@ export default function Checkout() {
 
     try {
       setLoading(true);
-      const provider = paymentMethod === 'UPI' ? 'razorpay' : 'stripe';
+      const provider =
+        paymentMethod === 'UPI'
+          ? 'razorpay'
+          : paymentMethod === 'Card'
+            ? 'stripe'
+            : 'cod';
       const { data: checkout } = await axios.post('/checkout/start', {
         cartId,
         email: user.email,

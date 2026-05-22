@@ -169,7 +169,7 @@ const toOrderDto = (row: OrderRow): OrderDto => ({
 });
 
 const toPaymentProvider = (provider: string): PaymentProvider => {
-  if (provider === "stripe" || provider === "razorpay") {
+  if (provider === "stripe" || provider === "razorpay" || provider === "cod" || provider === "manual") {
     return provider;
   }
 
@@ -221,29 +221,35 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       throw checkoutCartNotFoundError();
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const persistedCart = await this.persistCartSnapshot(tx, input, cart);
-      const variants = await this.getVariantSnapshots(tx, input.tenantId, cart.items);
-      const cartItems = await this.persistCartItems(tx, input, cart, variants);
-      const reservations = await this.reserveCartItems(tx, input, cartItems);
-      const order = await this.createOrder(tx, input, actor, cart, variants);
-      await this.linkReservationsToOrderItems(tx, input.tenantId, order, cartItems, reservations);
-      const payment = await this.createLocalPayment(tx, input, order);
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const persistedCart = await this.persistCartSnapshot(tx, input, cart);
+        const variants = await this.getVariantSnapshots(tx, input.tenantId, cart.items);
+        const cartItems = await this.persistCartItems(tx, input, cart, variants);
+        const reservations = await this.reserveCartItems(tx, input, cartItems);
+        const order = await this.createOrder(tx, input, actor, cart, variants);
+        await this.linkReservationsToOrderItems(tx, input.tenantId, order, cartItems, reservations);
+        const payment = await this.createLocalPayment(tx, input, order);
 
-      await tx.cart.update({
-        where: { id: input.cartId },
-        data: {
-          status: "converted",
-          lastSyncedAt: new Date()
-        }
-      });
+        await tx.cart.update({
+          where: { id: input.cartId },
+          data: {
+            status: "converted",
+            lastSyncedAt: new Date()
+          }
+        });
 
-      return {
-        cart: persistedCart,
-        order: toOrderDto(order),
-        payment: toPaymentDto(payment)
-      };
-    });
+        return {
+          cart: persistedCart,
+          order: toOrderDto(order),
+          payment: toPaymentDto(payment)
+        };
+      },
+      {
+        maxWait: 5_000,
+        timeout: 20_000
+      }
+    );
 
     return this.createProviderIntent(result, input.provider ?? this.env.PAYMENT_PROVIDER);
   }
@@ -325,6 +331,16 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
   ): Promise<CheckoutResultDto> {
     if (result.payment.provider !== provider) {
       throw checkoutPaymentConflictError();
+    }
+
+    if (provider === "cod" || provider === "manual") {
+      return {
+        cart: result.cart,
+        order: result.order,
+        payment: {
+          payment: result.payment
+        }
+      };
     }
 
     const providerClient = createPaymentProviderClient(provider, this.env);
@@ -815,6 +831,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
           status: "active"
         },
         data: {
+          cartItemId: null,
           orderItemId: orderItem.id
         }
       });

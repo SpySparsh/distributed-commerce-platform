@@ -1,4 +1,5 @@
-export type PaymentProvider = "stripe" | "razorpay";
+export type OnlinePaymentProvider = "stripe" | "razorpay";
+export type PaymentProvider = OnlinePaymentProvider | "cod" | "manual";
 export type PaymentStatus = "pending" | "authorized" | "captured" | "failed" | "refunded" | "cancelled";
 export type PaymentWebhookStatus = "received" | "processed" | "ignored" | "failed";
 

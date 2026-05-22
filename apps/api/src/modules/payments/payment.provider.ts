@@ -6,7 +6,7 @@ import {
 } from "./payment.errors.js";
 import type {
   PaymentInitiationDto,
-  PaymentProvider,
+  OnlinePaymentProvider,
   PaymentStatus,
   VerifiedPaymentWebhook
 } from "./payment.types.js";
@@ -221,7 +221,7 @@ class RazorpayPaymentProviderClient implements PaymentProviderClient {
 }
 
 export const createPaymentProviderClient = (
-  provider: PaymentProvider,
+  provider: OnlinePaymentProvider,
   env: ApiEnv
 ): PaymentProviderClient =>
   provider === "stripe"
