@@ -88,10 +88,15 @@ export const CartProvider = ({ children }) => {
     };
   };
 
-  const addToCart = async (product, qty = 1) => {
+  const addToCart = async (product, qty = 1, options = {}) => {
     if (!isAuthenticated) {
-      alert('Please login to add items to your cart.');
-      return;
+      const message = 'Please login to add items to your cart.';
+
+      if (!options.silent) {
+        alert(message);
+      }
+
+      throw new Error(message);
     }
 
     try {
@@ -105,10 +110,15 @@ export const CartProvider = ({ children }) => {
         currency: cartProduct.currency || 'USD'
       });
 
-      persistCart(res.data.cart ?? res.data);
+      const nextCart = res.data.cart ?? res.data;
+      persistCart(nextCart);
+      return nextCart;
     } catch (err) {
       console.error('Add to cart error:', err.response?.data || err.message);
-      alert(err.response?.data?.error?.message || err.message || 'Add to cart failed');
+      if (!options.silent) {
+        alert(err.response?.data?.error?.message || err.message || 'Add to cart failed');
+      }
+      throw err;
     }
   };
 
@@ -121,7 +131,9 @@ export const CartProvider = ({ children }) => {
       }
 
       const res = await axios.delete(`/carts/${activeCartId}/items/${variantId}`);
-      persistCart(res.data.cart ?? res.data);
+      const nextCart = res.data.cart ?? res.data;
+      persistCart(nextCart);
+      return nextCart;
     } catch (err) {
       console.error('Remove error:', err.response?.data || err.message);
     }
@@ -144,7 +156,9 @@ export const CartProvider = ({ children }) => {
         currency: currentItem.currency || 'USD'
       });
 
-      persistCart(res.data.cart ?? res.data);
+      const nextCart = res.data.cart ?? res.data;
+      persistCart(nextCart);
+      return nextCart;
     } catch (err) {
       console.error('Update qty error:', err.response?.data || err.message);
     }
@@ -154,6 +168,12 @@ export const CartProvider = ({ children }) => {
     for (const item of cart) {
       await removeFromCart(item.variantId);
     }
+  };
+
+  const resetCart = () => {
+    setCart([]);
+    setCartId(null);
+    localStorage.removeItem(cartStorageKey);
   };
 
   useEffect(() => {
@@ -173,7 +193,7 @@ export const CartProvider = ({ children }) => {
 
   return (
     <CartContext.Provider
-      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart }}
+      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart, resetCart }}
     >
       {children}
     </CartContext.Provider>

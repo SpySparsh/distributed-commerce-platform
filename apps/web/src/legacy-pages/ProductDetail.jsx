@@ -9,11 +9,24 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
   const [qty, setQty] = useState(1);
+  const [buyingNow, setBuyingNow] = useState(false);
   const reviews = [];
-  const handleBuyNow = () => {
-  localStorage.setItem('buyNow', JSON.stringify({ product, qty }));
-  navigate('/checkout');
-};
+  const handleBuyNow = async () => {
+    if (!product) {
+      return;
+    }
+
+    try {
+      setBuyingNow(true);
+      await addToCart(product, qty, { silent: true });
+      localStorage.removeItem('buyNow');
+      navigate('/checkout');
+    } catch (err) {
+      alert(err.response?.data?.error?.message || err.message || 'Unable to start checkout.');
+    } finally {
+      setBuyingNow(false);
+    }
+  };
 
 
   useEffect(() => {
@@ -69,9 +82,9 @@ export default function ProductDetail() {
             <button
               className="btn-primary mt-2 w-full"
               onClick={handleBuyNow}
-              disabled={product.countInStock === 0}
+              disabled={product.countInStock === 0 || buyingNow}
             >
-              Buy Now
+              {buyingNow ? 'Preparing Checkout...' : 'Buy Now'}
             </button>
 
 

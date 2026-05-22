@@ -144,6 +144,14 @@ const normalizeApiResponse = (response) => {
     return response;
   }
 
+  if (payload.order !== undefined && payload.payment !== undefined) {
+    response.data = {
+      ...payload,
+      order: normalizeOrder(payload.order)
+    };
+    return response;
+  }
+
   if (payload.cart !== undefined) {
     response.data = payload.cart;
     return response;

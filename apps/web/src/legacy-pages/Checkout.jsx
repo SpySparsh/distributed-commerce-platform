@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from '../api/axios';
 
 export default function Checkout() {
-  const { cart, cartId, clearCart } = useCart();
+  const { cart, cartId, resetCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
@@ -40,7 +40,7 @@ export default function Checkout() {
     e.preventDefault();
 
     if (!cartId) return alert('Cart is not ready yet');
-    if (!cart.length && !buyNowItem) return alert('No items to order');
+    if (!cart.length) return alert('No items to order');
     if (!user?.email) return alert('Please login before checkout');
 
     try {
@@ -78,9 +78,15 @@ export default function Checkout() {
         new window.Razorpay(options).open();
       }
 
-      if (buyNowItem) localStorage.removeItem('buyNow');
-      else clearCart();
-      navigate(`/order/${checkout.order.id}`);
+      const orderId = checkout.order?.id || checkout.order?._id || checkout.id || checkout._id;
+
+      if (!orderId) {
+        throw new Error('Checkout succeeded but the response did not include an order id.');
+      }
+
+      localStorage.removeItem('buyNow');
+      resetCart();
+      navigate(`/order/${orderId}`);
 
     } catch (err) {
       console.error('Payment/order error:', err);

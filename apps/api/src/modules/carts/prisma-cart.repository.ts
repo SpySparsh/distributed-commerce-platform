@@ -76,6 +76,7 @@ export class PrismaCartRepository implements CartRepository {
       where: {
         id: cartId,
         tenantId,
+        status: "active",
         deletedAt: null
       },
       include: cartInclude
