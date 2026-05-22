@@ -40,6 +40,58 @@ export interface CheckoutRouteOptions {
 
 export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (app, options) => {
   const redis = createRedisCacheClient(app);
+  const enqueueOrderCreatedEmail = async (
+    request: FastifyRequest,
+    checkout: Awaited<ReturnType<CheckoutRepository["startCheckout"]>>
+  ): Promise<void> => {
+    try {
+      await app.queues.enqueue({
+        name: "email.send",
+        metadata: {
+          tenantId: checkout.order.tenantId,
+          requestId: request.id,
+          idempotencyKey: `order-created:${checkout.order.id}:${checkout.payment.payment.id}`,
+          createdAt: new Date().toISOString()
+        },
+        data: {
+          to: checkout.order.email,
+          template: "order-confirmation",
+          variables: {
+            customerName: String(checkout.order.shippingAddress["name"] ?? checkout.order.email),
+            orderId: checkout.order.id,
+            orderNumber: checkout.order.orderNumber,
+            products: checkout.order.items.map((item) => ({
+              name: item.name,
+              quantity: item.quantity,
+              totalAmount: item.totalAmount
+            })),
+            total: checkout.order.totalAmount,
+            currency: checkout.order.currency,
+            paymentMethod: checkout.payment.payment.provider,
+            orderStatus: checkout.order.status
+          }
+        }
+      });
+      request.log.info(
+        {
+          orderId: checkout.order.id,
+          paymentId: checkout.payment.payment.id,
+          to: checkout.order.email,
+          template: "order-confirmation"
+        },
+        "EMAIL SENT"
+      );
+    } catch (error) {
+      request.log.error(
+        {
+          err: error,
+          orderId: checkout.order.id,
+          paymentId: checkout.payment.payment.id
+        },
+        "Failed to enqueue order confirmation email"
+      );
+    }
+  };
 
   app.post(
     "/start",
@@ -112,6 +164,8 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         }
       }
 
+      await enqueueOrderCreatedEmail(request, checkout);
+
       await reply.status(201).send({
         ok: true,
         data: checkout
@@ -170,6 +224,8 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         request.log.error({ err: error, tenantId, userId, productId: body.productId, variantId: body.variantId }, "FAILED BUY-NOW CHECKOUT STEP");
         throw error;
       }
+
+      await enqueueOrderCreatedEmail(request, checkout);
 
       await reply.status(201).send({
         ok: true,

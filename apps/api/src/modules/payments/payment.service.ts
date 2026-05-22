@@ -148,6 +148,15 @@ export const createPaymentService = (
       });
     }
 
+    if (applied.payment.status === "captured") {
+      console.info("REVENUE UPDATED", {
+        orderId: applied.payment.orderId,
+        paymentId: applied.payment.id,
+        revenueAmount: applied.payment.amount,
+        currency: applied.payment.currency
+      });
+    }
+
     if (applied.inventoryReleased) {
       console.info("INVENTORY RELEASED", {
         orderId: applied.payment.orderId,
@@ -160,17 +169,19 @@ export const createPaymentService = (
         name: jobNames.sendEmail,
         metadata: {
           tenantId: applied.payment.tenantId,
-          idempotencyKey: `order-confirmation:${applied.order.id}:${applied.payment.id}`,
+          idempotencyKey: `payment-success:${applied.order.id}:${applied.payment.id}`,
           createdAt: new Date().toISOString()
         },
         data: {
           to: applied.order.email,
-          template: "order-confirmation",
+          template: "payment-success",
           variables: {
             orderId: applied.order.id,
             orderNumber: applied.order.orderNumber,
             paymentStatus: "paid",
-            totalAmount: applied.order.totalAmount,
+            paymentAmount: applied.payment.amount,
+            paymentProvider: applied.payment.provider,
+            paidAt: applied.payment.paidAt ?? applied.payment.capturedAt ?? new Date().toISOString(),
             currency: applied.order.currency,
             items: applied.order.items
           }
@@ -181,7 +192,7 @@ export const createPaymentService = (
         orderId: applied.order.id,
         paymentId: applied.payment.id,
         to: applied.order.email,
-        template: "order-confirmation"
+        template: "payment-success"
       });
     }
 

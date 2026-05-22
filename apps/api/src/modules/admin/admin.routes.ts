@@ -47,6 +47,13 @@ const toAdminPaymentStatus = (status: string | undefined): string => {
   }
 };
 
+const toPublicOrderStatus = (status: string): string =>
+  status === "fulfilled" ? "delivered" : status;
+
+const toMinorUnits = (amount: string): number => Math.round(Number(amount) * 100);
+
+const toMoney = (minorUnits: number): string => (minorUnits / 100).toFixed(2);
+
 const toAdminProduct = (product: {
   id: string;
   sku: string;
@@ -118,18 +125,73 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     }
   };
 
+  const enqueueOrderEmail = async (
+    input: {
+      readonly tenantId: string;
+      readonly requestId: string;
+      readonly to: string;
+      readonly template: "order-confirmation" | "payment-success" | "order-delivered";
+      readonly idempotencyKey: string;
+      readonly variables: Record<string, unknown>;
+    }
+  ): Promise<void> => {
+    try {
+      await app.queues.enqueue({
+        name: jobNames.sendEmail,
+        metadata: {
+          tenantId: input.tenantId,
+          requestId: input.requestId,
+          idempotencyKey: input.idempotencyKey,
+          createdAt: new Date().toISOString()
+        },
+        data: {
+          to: input.to,
+          template: input.template,
+          variables: input.variables
+        }
+      });
+
+      app.log.info(
+        {
+          tenantId: input.tenantId,
+          to: input.to,
+          template: input.template,
+          idempotencyKey: input.idempotencyKey
+        },
+        "EMAIL SENT"
+      );
+    } catch (error) {
+      app.log.error(
+        {
+          err: error,
+          tenantId: input.tenantId,
+          to: input.to,
+          template: input.template,
+          idempotencyKey: input.idempotencyKey
+        },
+        "Failed to enqueue lifecycle email"
+      );
+    }
+  };
+
   app.get("/dashboard/summary", { preHandler: adminGuard }, async (request) => {
     const tenantId = getAuthenticatedTenantId(request);
-    const [userCount, productCount, activeCartCount, totalOrders, revenueAggregate, ordersByStatus, paymentsByStatus] =
+    const [userCount, productCount, activeCartCount, totalOrders, paidPayments, pendingOrders, deliveredOrders, ordersByStatus, paymentsByStatus] =
       await Promise.all([
         app.prisma.user.count({ where: { tenantId, deletedAt: null } }),
         app.prisma.product.count({ where: { tenantId, deletedAt: null } }),
         app.prisma.cart.count({ where: { tenantId, status: "active", deletedAt: null } }),
         app.prisma.order.count({ where: { tenantId, deletedAt: null } }),
-        app.prisma.order.aggregate({
-          where: { tenantId, deletedAt: null, status: { in: ["paid", "fulfilled"] } },
-          _sum: { totalAmount: true }
+        app.prisma.payment.findMany({
+          where: { tenantId, deletedAt: null, status: "captured" },
+          select: {
+            orderId: true,
+            amount: true
+          },
+          orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }]
         }),
+        app.prisma.order.count({ where: { tenantId, deletedAt: null, status: "pending" } }),
+        app.prisma.order.count({ where: { tenantId, deletedAt: null, status: "fulfilled" } }),
         app.prisma.order.groupBy({
           by: ["status"],
           where: { tenantId, deletedAt: null },
@@ -141,17 +203,32 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           _count: { _all: true }
         })
       ]);
+    const paidPaymentsByOrderId = new Map<string, string>();
+
+    for (const payment of paidPayments) {
+      if (!paidPaymentsByOrderId.has(payment.orderId)) {
+        paidPaymentsByOrderId.set(payment.orderId, payment.amount.toString());
+      }
+    }
+
+    const revenue = toMoney([...paidPaymentsByOrderId.values()].reduce(
+      (total, amount) => total + toMinorUnits(amount),
+      0
+    ));
 
     return {
       ok: true,
       data: {
         totalOrders,
-        revenue: revenueAggregate._sum.totalAmount?.toString() ?? "0.00",
+        revenue,
+        paidOrders: paidPaymentsByOrderId.size,
+        pendingOrders,
+        deliveredOrders,
         userCount,
         productCount,
         activeCartCount,
         ordersByStatus: ordersByStatus.map((item) => ({
-          status: item.status,
+          status: toPublicOrderStatus(item.status),
           count: item._count._all
         })),
         paymentsByStatus: paymentsByStatus.map((item) => ({
@@ -290,7 +367,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           createdAt: order.createdAt.toISOString(),
           totalAmount: order.totalAmount.toString(),
           currency: order.currency,
-          status: order.status,
+          status: toPublicOrderStatus(order.status),
+          orderStatus: toPublicOrderStatus(order.status),
           paymentStatus: toAdminPaymentStatus(latestPayment?.status),
           isPaid: latestPayment?.status === "captured" || ["paid", "fulfilled"].includes(order.status),
           isDelivered: order.status === "fulfilled",
@@ -300,6 +378,351 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       })
     };
   });
+
+  app.post(
+    "/orders/:id/mark-paid",
+    { preHandler: [...adminGuard, validateRequest({ params: idParamsSchema })] },
+    async (request, reply) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const params = idParamsSchema.parse(request.params);
+      const now = new Date();
+
+      const result = await app.prisma.$transaction(async (tx) => {
+        const order = await tx.order.findFirst({
+          where: { tenantId, id: params.id, deletedAt: null },
+          include: {
+            items: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: "asc" }
+            },
+            payments: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: "desc" }
+            }
+          }
+        });
+
+        if (order === null) {
+          return undefined;
+        }
+
+        const existingPayment = order.payments[0];
+        const payment = existingPayment === undefined
+          ? await tx.payment.create({
+              data: {
+                tenantId,
+                orderId: order.id,
+                provider: "manual",
+                status: "captured",
+                amount: order.totalAmount,
+                currency: order.currency,
+                idempotencyKey: `admin-paid:${order.id}`,
+                paidAt: now,
+                capturedAt: now,
+                metadata: {
+                  source: "admin_mark_paid"
+                }
+              }
+            })
+          : await tx.payment.update({
+              where: { id: existingPayment.id },
+              data: {
+                status: "captured",
+                paidAt: existingPayment.paidAt ?? now,
+                capturedAt: existingPayment.capturedAt ?? now,
+                failureCode: null,
+                failureMessage: null,
+                nextRetryAt: null,
+                metadata: {
+                  ...(typeof existingPayment.metadata === "object" && existingPayment.metadata !== null
+                    ? existingPayment.metadata as Record<string, unknown>
+                    : {}),
+                  adminMarkedPaidAt: now.toISOString()
+                }
+              }
+            });
+
+        let inventoryConsumed = false;
+
+        if (!["paid", "fulfilled"].includes(order.status)) {
+          for (const item of order.items) {
+            const reservations = await tx.inventoryReservation.findMany({
+              where: {
+                tenantId,
+                orderItemId: item.id,
+                status: "active",
+                deletedAt: null
+              },
+              select: {
+                id: true,
+                inventoryItemId: true,
+                variantId: true,
+                quantity: true
+              }
+            });
+
+            if (reservations.length > 0) {
+              const reservationGroups = new Map<string, number>();
+
+              for (const reservation of reservations) {
+                reservationGroups.set(
+                  reservation.inventoryItemId,
+                  (reservationGroups.get(reservation.inventoryItemId) ?? 0) + reservation.quantity
+                );
+              }
+
+              for (const [inventoryItemId, quantity] of reservationGroups) {
+                const consumed = await tx.$executeRaw`
+                  UPDATE "InventoryItem"
+                  SET "quantity" = "quantity" - ${quantity},
+                      "reserved" = "reserved" - ${quantity},
+                      "version" = "version" + 1,
+                      "updatedAt" = NOW()
+                  WHERE "id" = ${inventoryItemId}::uuid
+                    AND "tenantId" = ${tenantId}::uuid
+                    AND "quantity" >= ${quantity}
+                    AND "reserved" >= ${quantity}
+                `;
+
+                if (consumed !== 1) {
+                  throw Object.assign(new Error("Reserved inventory is required before marking the order paid"), {
+                    code: "ORDER_INVENTORY_NOT_RESERVED",
+                    statusCode: 409
+                  });
+                }
+              }
+
+              const reservationIds = reservations.map((reservation) => reservation.id);
+
+              if (reservationIds.length > 0) {
+                await tx.inventoryReservation.updateMany({
+                  where: {
+                    id: { in: reservationIds },
+                    tenantId,
+                    status: "active"
+                  },
+                  data: {
+                    status: "consumed",
+                    consumedAt: now
+                  }
+                });
+                inventoryConsumed = true;
+              }
+            }
+          }
+
+          await tx.order.update({
+            where: { id: order.id },
+            data: {
+              status: "paid",
+              placedAt: order.placedAt ?? now,
+              version: { increment: 1 }
+            }
+          });
+
+          await tx.orderEvent.create({
+            data: {
+              tenantId,
+              orderId: order.id,
+              type: "paid",
+              beforeStatus: order.status,
+              afterStatus: "paid",
+              actorUserId: getAuthenticatedUserId(request),
+              requestId: request.id,
+              metadata: {
+                paymentId: payment.id,
+                source: "admin_mark_paid"
+              }
+            }
+          });
+
+          if (inventoryConsumed) {
+            await tx.orderEvent.create({
+              data: {
+                tenantId,
+                orderId: order.id,
+                type: "inventory_consumed",
+                actorUserId: getAuthenticatedUserId(request),
+                requestId: request.id,
+                metadata: {
+                  paymentId: payment.id,
+                  itemCount: order.items.length,
+                  source: "admin_mark_paid"
+                }
+              }
+            });
+          }
+        }
+
+        const updatedOrder = await tx.order.findFirstOrThrow({
+          where: { tenantId, id: order.id },
+          include: {
+            items: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
+            payments: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } }
+          }
+        });
+
+        return { order: updatedOrder, payment };
+      });
+
+      if (result === undefined) {
+        await reply.status(404).send({ ok: false, error: { code: "ORDER_NOT_FOUND", message: "Order not found", correlationId: request.correlationId } });
+        return;
+      }
+
+      request.log.info(
+        {
+          orderId: result.order.id,
+          paymentId: result.payment.id,
+          amount: result.payment.amount.toString(),
+          provider: result.payment.provider
+        },
+        "PAYMENT MARKED PAID"
+      );
+      request.log.info(
+        {
+          orderId: result.order.id,
+          paymentId: result.payment.id,
+          revenueAmount: result.payment.amount.toString()
+        },
+        "REVENUE UPDATED"
+      );
+
+      await enqueueOrderEmail({
+        tenantId,
+        requestId: request.id,
+        to: result.order.email,
+        template: "payment-success",
+        idempotencyKey: `payment-success:${result.order.id}:${result.payment.id}`,
+        variables: {
+          orderId: result.order.id,
+          orderNumber: result.order.orderNumber,
+          paymentAmount: result.payment.amount.toString(),
+          paymentProvider: result.payment.provider,
+          paidAt: (result.payment.paidAt ?? result.payment.capturedAt ?? now).toISOString()
+        }
+      });
+
+      return {
+        ok: true,
+        data: {
+          order: {
+            id: result.order.id,
+            _id: result.order.id,
+            orderNumber: result.order.orderNumber,
+            status: toPublicOrderStatus(result.order.status),
+            paymentStatus: toAdminPaymentStatus(result.payment.status)
+          }
+        }
+      };
+    }
+  );
+
+  app.post(
+    "/orders/:id/mark-delivered",
+    { preHandler: [...adminGuard, validateRequest({ params: idParamsSchema })] },
+    async (request, reply) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const params = idParamsSchema.parse(request.params);
+      const now = new Date();
+
+      const order = await app.prisma.$transaction(async (tx) => {
+        const existing = await tx.order.findFirst({
+          where: { tenantId, id: params.id, deletedAt: null },
+          include: {
+            items: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
+            payments: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } }
+          }
+        });
+
+        if (existing === null) {
+          return undefined;
+        }
+
+        if (existing.status !== "fulfilled") {
+          await tx.order.update({
+            where: { id: existing.id },
+            data: {
+              status: "fulfilled",
+              deliveredAt: now,
+              version: { increment: 1 }
+            }
+          });
+
+          await tx.orderEvent.create({
+            data: {
+              tenantId,
+              orderId: existing.id,
+              type: "fulfilled",
+              beforeStatus: existing.status,
+              afterStatus: "fulfilled",
+              actorUserId: getAuthenticatedUserId(request),
+              requestId: request.id,
+              metadata: {
+                deliveredAt: now.toISOString(),
+                source: "admin_mark_delivered"
+              }
+            }
+          });
+        }
+
+        return tx.order.findFirstOrThrow({
+          where: { tenantId, id: existing.id },
+          include: {
+            items: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
+            payments: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } }
+          }
+        });
+      });
+
+      if (order === undefined) {
+        await reply.status(404).send({ ok: false, error: { code: "ORDER_NOT_FOUND", message: "Order not found", correlationId: request.correlationId } });
+        return;
+      }
+
+      request.log.info(
+        {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          deliveredAt: order.deliveredAt?.toISOString()
+        },
+        "ORDER DELIVERED"
+      );
+
+      await enqueueOrderEmail({
+        tenantId,
+        requestId: request.id,
+        to: order.email,
+        template: "order-delivered",
+        idempotencyKey: `order-delivered:${order.id}:${order.deliveredAt?.toISOString() ?? now.toISOString()}`,
+        variables: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          products: order.items.map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            totalAmount: item.totalAmount.toString()
+          })),
+          deliveredAt: order.deliveredAt?.toISOString() ?? now.toISOString(),
+          message: "Thank you for shopping with us."
+        }
+      });
+
+      return {
+        ok: true,
+        data: {
+          order: {
+            id: order.id,
+            _id: order.id,
+            orderNumber: order.orderNumber,
+            status: toPublicOrderStatus(order.status),
+            paymentStatus: toAdminPaymentStatus(order.payments[0]?.status),
+            deliveredAt: order.deliveredAt?.toISOString()
+          }
+        }
+      };
+    }
+  );
 
   app.get("/products", { preHandler: adminGuard }, async (request) => {
     const tenantId = getAuthenticatedTenantId(request);

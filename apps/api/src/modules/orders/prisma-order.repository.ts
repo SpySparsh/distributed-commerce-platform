@@ -56,6 +56,7 @@ interface OrderRow {
   readonly invoiceNumber: string | null;
   readonly invoiceUrl: string | null;
   readonly placedAt: Date | null;
+  readonly deliveredAt: Date | null;
   readonly invoicedAt: Date | null;
   readonly version: number;
   readonly createdAt: Date;
@@ -155,6 +156,7 @@ const toOrderDto = (row: OrderRow): OrderDto => ({
   ...(row.invoiceNumber === null ? {} : { invoiceNumber: row.invoiceNumber }),
   ...(row.invoiceUrl === null ? {} : { invoiceUrl: row.invoiceUrl }),
   ...(row.placedAt === null ? {} : { placedAt: row.placedAt.toISOString() }),
+  ...(row.deliveredAt === null ? {} : { deliveredAt: row.deliveredAt.toISOString() }),
   ...(row.invoicedAt === null ? {} : { invoicedAt: row.invoicedAt.toISOString() }),
   createdAt: row.createdAt.toISOString(),
   updatedAt: row.updatedAt.toISOString(),
@@ -455,7 +457,8 @@ export class PrismaOrderRepository implements OrderRepository {
           version: {
             increment: 1
           },
-          ...(input.nextStatus === "paid" ? { placedAt: now } : {})
+          ...(input.nextStatus === "paid" ? { placedAt: now } : {}),
+          ...(input.nextStatus === "fulfilled" ? { deliveredAt: now } : {})
         }
       });
 

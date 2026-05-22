@@ -61,12 +61,14 @@ export default function AdminDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
           <StatCard title="Total Orders" value={stats.totalOrders} />
           <StatCard title="Revenue" value={`USD ${stats.revenue}`} />
+          <StatCard title="Paid Orders" value={stats.paidOrders || 0} />
+          <StatCard title="Pending Orders" value={stats.pendingOrders || 0} />
           <StatCard title="Users" value={stats.userCount} />
           <StatCard title="Products" value={stats.productCount} />
           <StatCard title="Active Carts" value={stats.activeCartCount} />
           <StatCard
-            title="Fulfilled"
-            value={stats.ordersByStatus?.find(s => s.status === 'fulfilled')?.count || 0}
+            title="Delivered"
+            value={stats.deliveredOrders || stats.ordersByStatus?.find(s => s.status === 'delivered')?.count || 0}
           />
         </div>
       )}

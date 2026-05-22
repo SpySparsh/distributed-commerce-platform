@@ -460,6 +460,7 @@ model Order {
   invoiceNumber   String?
   invoiceUrl      String?
   placedAt        DateTime?   @db.Timestamptz(6)
+  deliveredAt     DateTime?   @db.Timestamptz(6)
   invoicedAt      DateTime?   @db.Timestamptz(6)
   version         Int         @default(0)
   createdAt       DateTime    @default(now()) @db.Timestamptz(6)
@@ -479,6 +480,7 @@ model Order {
   @@index([tenantId, status, createdAt, id])
   @@index([tenantId, email, createdAt])
   @@index([tenantId, placedAt, id])
+  @@index([tenantId, deliveredAt, id])
 }
 
 model OrderEvent {
@@ -546,6 +548,7 @@ model Payment {
   nextRetryAt           DateTime?       @db.Timestamptz(6)
   metadata              Json            @default("{}")
   authorizedAt          DateTime?       @db.Timestamptz(6)
+  paidAt                DateTime?       @db.Timestamptz(6)
   capturedAt            DateTime?       @db.Timestamptz(6)
   failedAt              DateTime?       @db.Timestamptz(6)
   refundedAt            DateTime?       @db.Timestamptz(6)
@@ -560,6 +563,7 @@ model Payment {
   @@unique([tenantId, provider, providerPaymentId])
   @@index([tenantId, orderId, status])
   @@index([tenantId, status, createdAt, id])
+  @@index([tenantId, status, paidAt])
   @@index([tenantId, status, nextRetryAt])
 }
 

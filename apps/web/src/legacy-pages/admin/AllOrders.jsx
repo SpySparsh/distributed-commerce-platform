@@ -20,13 +20,23 @@ export default function AllOrders() {
     fetchOrders();
   }, []);
 
-  const transitionOrder = async (orderId, nextStatus) => {
+  const markPaid = async (orderId) => {
     try {
-      await axios.post(`/orders/${orderId}/transitions`, { nextStatus });
+      await axios.post(`/admin/orders/${orderId}/mark-paid`);
       fetchOrders();
     } catch (err) {
-      console.error('Order transition failed:', err.response?.data || err.message);
-      alert(err.response?.data?.error?.message || 'Failed to update order.');
+      console.error('Mark paid failed:', err.response?.data || err.message);
+      alert(err.response?.data?.error?.message || 'Failed to mark order paid.');
+    }
+  };
+
+  const markDelivered = async (orderId) => {
+    try {
+      await axios.post(`/admin/orders/${orderId}/mark-delivered`);
+      fetchOrders();
+    } catch (err) {
+      console.error('Mark delivered failed:', err.response?.data || err.message);
+      alert(err.response?.data?.error?.message || 'Failed to mark order delivered.');
     }
   };
 
@@ -44,8 +54,9 @@ export default function AllOrders() {
               <th className="p-3 text-left">User</th>
               <th className="p-3 text-left">Date</th>
               <th className="p-3 text-left">Total</th>
-              <th className="p-3 text-left">Payment</th>
-              <th className="p-3 text-left">Status</th>
+              <th className="p-3 text-left">Payment Provider</th>
+              <th className="p-3 text-left">Payment Status</th>
+              <th className="p-3 text-left">Order Status</th>
               <th className="p-3 text-left">Actions</th>
             </tr>
           </thead>
@@ -57,21 +68,17 @@ export default function AllOrders() {
                 <td className="p-2 sm:p-3">{new Date(order.createdAt).toLocaleDateString()}</td>
                 <td className="p-2 sm:p-3 whitespace-nowrap">{order.currency} {order.totalAmount}</td>
                 <td className="p-2 sm:p-3 text-xs">{order.paymentMethod}</td>
-                <td className="p-2 sm:p-3">{order.status}</td>
+                <td className="p-2 sm:p-3">{order.paymentStatus || 'pending'}</td>
+                <td className="p-2 sm:p-3">{order.orderStatus || order.status}</td>
                 <td className="p-2 sm:p-3 space-y-1 text-xs">
-                  {order.status === 'pending' && (
-                    <button onClick={() => transitionOrder(order._id, 'confirmed')} className="text-green-600 hover:underline block">
-                      Confirm
-                    </button>
-                  )}
-                  {order.status === 'confirmed' && (
-                    <button onClick={() => transitionOrder(order._id, 'paid')} className="text-green-600 hover:underline block">
+                  {(order.paymentStatus || 'pending') !== 'paid' && (
+                    <button onClick={() => markPaid(order._id)} className="text-green-600 hover:underline block">
                       Mark Paid
                     </button>
                   )}
-                  {order.status === 'paid' && (
-                    <button onClick={() => transitionOrder(order._id, 'fulfilled')} className="text-blue-600 hover:underline block">
-                      Fulfill
+                  {(order.orderStatus || order.status) !== 'delivered' && (
+                    <button onClick={() => markDelivered(order._id)} className="text-blue-600 hover:underline block">
+                      Mark Delivered
                     </button>
                   )}
                 </td>

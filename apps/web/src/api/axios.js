@@ -22,7 +22,7 @@ const normalizeOrder = (order) => ({
   orderItems: order.orderItems || order.items || [],
   shippingInfo: order.shippingInfo || order.shippingAddress || {},
   totalAmount: order.totalAmount,
-  isDelivered: order.isDelivered ?? order.status === 'fulfilled'
+  isDelivered: order.isDelivered ?? (order.status === 'fulfilled' || order.status === 'delivered')
 });
 
 const instance = axios.create({

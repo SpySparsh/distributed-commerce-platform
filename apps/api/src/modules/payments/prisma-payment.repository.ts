@@ -37,6 +37,7 @@ interface PaymentRow {
   readonly nextRetryAt: Date | null;
   readonly metadata: unknown;
   readonly authorizedAt: Date | null;
+  readonly paidAt: Date | null;
   readonly capturedAt: Date | null;
   readonly failedAt: Date | null;
   readonly refundedAt: Date | null;
@@ -110,6 +111,7 @@ const toPaymentDto = (row: PaymentRow): PaymentDto => ({
   ...(row.nextRetryAt === null ? {} : { nextRetryAt: row.nextRetryAt.toISOString() }),
   metadata: toMetadata(row.metadata),
   ...(row.authorizedAt === null ? {} : { authorizedAt: row.authorizedAt.toISOString() }),
+  ...(row.paidAt === null ? {} : { paidAt: row.paidAt.toISOString() }),
   ...(row.capturedAt === null ? {} : { capturedAt: row.capturedAt.toISOString() }),
   ...(row.failedAt === null ? {} : { failedAt: row.failedAt.toISOString() }),
   ...(row.refundedAt === null ? {} : { refundedAt: row.refundedAt.toISOString() }),
@@ -129,7 +131,7 @@ const statusTimestamp = (status: PaymentStatus, now: Date): Record<string, Date>
     case "authorized":
       return { authorizedAt: now };
     case "captured":
-      return { capturedAt: now };
+      return { capturedAt: now, paidAt: now };
     case "failed":
       return { failedAt: now };
     case "refunded":

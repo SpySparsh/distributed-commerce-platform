@@ -20,6 +20,7 @@ export interface PaymentDto {
   readonly nextRetryAt?: string;
   readonly metadata: Record<string, unknown>;
   readonly authorizedAt?: string;
+  readonly paidAt?: string;
   readonly capturedAt?: string;
   readonly failedAt?: string;
   readonly refundedAt?: string;

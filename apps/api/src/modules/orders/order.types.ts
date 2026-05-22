@@ -42,6 +42,7 @@ export interface OrderDto {
   readonly invoiceNumber?: string;
   readonly invoiceUrl?: string;
   readonly placedAt?: string;
+  readonly deliveredAt?: string;
   readonly invoicedAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
