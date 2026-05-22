@@ -31,6 +31,7 @@ export interface PaymentProviderClient {
 }
 
 const toMinorUnits = (amount: string): number => Math.round(Number(amount) * 100);
+const stripeIntegrationVersion = "REST API via fetch; no stripe SDK in @ecommerce/api";
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown provider error";
@@ -75,6 +76,31 @@ class StripePaymentProviderClient implements PaymentProviderClient {
     try {
       const successUrl = `${this.env.FRONTEND_URL.replace(/\/$/, "")}/order/${input.orderId}?payment=stripe-success`;
       const cancelUrl = `${this.env.FRONTEND_URL.replace(/\/$/, "")}/checkout?payment=stripe-cancelled`;
+      const stripePayload = {
+        mode: "payment",
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        "payment_method_types[0]": "card",
+        "line_items[0][quantity]": "1",
+        "line_items[0][price_data][currency]": input.currency.toLowerCase(),
+        "line_items[0][price_data][unit_amount]": String(toMinorUnits(input.amount)),
+        "line_items[0][price_data][product_data][name]": `Order ${input.orderId}`,
+        "metadata[paymentId]": input.paymentId,
+        "metadata[orderId]": input.orderId,
+        "metadata[tenantId]": input.tenantId,
+        "payment_intent_data[metadata][paymentId]": input.paymentId,
+        "payment_intent_data[metadata][orderId]": input.orderId,
+        "payment_intent_data[metadata][tenantId]": input.tenantId
+      };
+
+      console.info("STRIPE CONFIG", {
+        stripeConfigured: this.env.STRIPE_SECRET_KEY !== undefined,
+        stripeVersion: stripeIntegrationVersion
+      });
+      console.info("STRIPE CHECKOUT SESSION PAYLOAD", {
+        stripePayload
+      });
+
       const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
         method: "POST",
         headers: {
@@ -82,22 +108,7 @@ class StripePaymentProviderClient implements PaymentProviderClient {
           "content-type": "application/x-www-form-urlencoded",
           "idempotency-key": input.idempotencyKey
         },
-        body: new URLSearchParams({
-          mode: "payment",
-          success_url: successUrl,
-          cancel_url: cancelUrl,
-          "line_items[0][quantity]": "1",
-          "line_items[0][price_data][currency]": input.currency.toLowerCase(),
-          "line_items[0][price_data][unit_amount]": String(toMinorUnits(input.amount)),
-          "line_items[0][price_data][product_data][name]": `Order ${input.orderId}`,
-          "metadata[paymentId]": input.paymentId,
-          "metadata[orderId]": input.orderId,
-          "metadata[tenantId]": input.tenantId,
-          "payment_intent_data[metadata][paymentId]": input.paymentId,
-          "payment_intent_data[metadata][orderId]": input.orderId,
-          "payment_intent_data[metadata][tenantId]": input.tenantId,
-          "automatic_payment_methods[enabled]": "true"
-        })
+        body: new URLSearchParams(stripePayload)
       });
 
       payload = getObjectRecord(await response.json());

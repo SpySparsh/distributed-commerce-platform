@@ -37,7 +37,8 @@ export const buildApp = async ({ config }: BuildAppOptions): Promise<FastifyInst
   app.log.info({
     defaultProvider: config.PAYMENT_PROVIDER,
     stripeSecretConfigured: config.STRIPE_SECRET_KEY !== undefined,
-    stripeWebhookConfigured: config.STRIPE_WEBHOOK_SECRET !== undefined
+    stripeWebhookConfigured: config.STRIPE_WEBHOOK_SECRET !== undefined,
+    stripeVersion: "REST API via fetch; no stripe SDK in @ecommerce/api"
   }, "Payment provider configuration validated");
   registerLifecycleHooks(app);
   await registerRoutes(app);

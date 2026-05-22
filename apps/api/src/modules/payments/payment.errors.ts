@@ -14,7 +14,7 @@ export const paymentProviderNotConfiguredError = (): PaymentError =>
   new PaymentError("PAYMENT_PROVIDER_NOT_CONFIGURED", "Payment provider is not configured", 503);
 
 export const paymentProviderRequestFailedError = (provider: string, message: string): PaymentError =>
-  new PaymentError("PAYMENT_PROVIDER_REQUEST_FAILED", `${provider} payment initialization failed: ${message}`, 502);
+  new PaymentError("PAYMENT_PROVIDER_REQUEST_FAILED", `${provider} payment initialization failed: ${message}`, 500);
 
 export const paymentNotFoundError = (): PaymentError =>
   new PaymentError("PAYMENT_NOT_FOUND", "Payment not found", 404);
