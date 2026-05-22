@@ -39,6 +39,9 @@ export interface VerifiedPaymentWebhook {
   readonly provider: PaymentProvider;
   readonly providerEventId: string;
   readonly eventType: string;
+  readonly tenantId?: string;
+  readonly orderId?: string;
+  readonly paymentId?: string;
   readonly providerPaymentId?: string;
   readonly providerTransactionId?: string;
   readonly status: PaymentStatus;

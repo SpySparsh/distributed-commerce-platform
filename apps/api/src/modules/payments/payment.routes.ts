@@ -23,7 +23,7 @@ const getHeaderValue = (header: string | string[] | undefined): string | undefin
   Array.isArray(header) ? header[0] : header;
 
 const isWebhookRequest = (url: string | undefined): boolean =>
-  url?.includes("/webhooks/") ?? false;
+  url?.includes("/webhooks/") === true || url?.includes("/stripe/webhook") === true;
 
 const readPayloadBuffer = async (payload: AsyncIterable<unknown>): Promise<Buffer> => {
   const chunks: Buffer[] = [];
@@ -157,6 +157,28 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
       const signature = getHeaderValue(request.headers["stripe-signature"]);
       const result = await service.handleWebhook({
         provider: params.provider,
+        rawBody: request.rawBody ?? "",
+        signature
+      });
+
+      return {
+        ok: true,
+        data: result
+      };
+    }
+  );
+
+  app.post(
+    "/stripe/webhook",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "payments:stripe-webhook", maxRequests: 1_000 })
+      ]
+    },
+    async (request) => {
+      const signature = getHeaderValue(request.headers["stripe-signature"]);
+      const result = await service.handleWebhook({
+        provider: "stripe",
         rawBody: request.rawBody ?? "",
         signature
       });

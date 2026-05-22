@@ -65,6 +65,7 @@ export const createPaymentService = (
       ...(providerResult.providerClientSecret === undefined
         ? {}
         : { providerClientSecret: providerResult.providerClientSecret }),
+      ...(providerResult.providerCheckoutUrl === undefined ? {} : { providerCheckoutUrl: providerResult.providerCheckoutUrl }),
       ...(providerResult.providerOrderId === undefined ? {} : { providerOrderId: providerResult.providerOrderId }),
       ...(providerResult.publishableKey === undefined ? {} : { publishableKey: providerResult.publishableKey })
     };
@@ -81,11 +82,23 @@ export const createPaymentService = (
       signature: input.signature,
       tenantId: ""
     });
-    const payment = webhook.providerPaymentId === undefined
-      ? undefined
-      : await repository.findPaymentByProviderPaymentId(input.provider, webhook.providerPaymentId);
+    const payment = await repository.findPaymentByWebhookReference({
+      provider: input.provider,
+      ...(webhook.providerPaymentId === undefined ? {} : { providerPaymentId: webhook.providerPaymentId }),
+      ...(webhook.paymentId === undefined ? {} : { paymentId: webhook.paymentId }),
+      ...(webhook.orderId === undefined ? {} : { orderId: webhook.orderId }),
+      ...(webhook.tenantId === undefined ? {} : { tenantId: webhook.tenantId })
+    });
 
     if (payment === undefined) {
+      console.warn("WEBHOOK PAYMENT NOT FOUND", {
+        provider: input.provider,
+        eventType: webhook.eventType,
+        providerEventId: webhook.providerEventId,
+        providerPaymentId: webhook.providerPaymentId,
+        paymentId: webhook.paymentId,
+        orderId: webhook.orderId
+      });
       return {
         processed: false
       };
@@ -102,17 +115,80 @@ export const createPaymentService = (
       };
     }
 
-    const updatedPayment = await repository.applyWebhook({
+    const applied = await repository.applyWebhook({
       tenantId: payment.tenantId,
       webhook
     });
 
-    return updatedPayment === undefined
-      ? { processed: false }
-      : {
-          processed: true,
-          payment: updatedPayment
-        };
+    if (applied === undefined) {
+      return { processed: false };
+    }
+
+    console.info("PAYMENT UPDATED", {
+      paymentId: applied.payment.id,
+      orderId: applied.payment.orderId,
+      status: applied.payment.status,
+      providerPaymentId: applied.payment.providerPaymentId,
+      providerTransactionId: applied.payment.providerTransactionId
+    });
+
+    if (applied.order !== undefined) {
+      console.info("ORDER UPDATED", {
+        orderId: applied.order.id,
+        orderNumber: applied.order.orderNumber,
+        beforeStatus: applied.order.beforeStatus,
+        afterStatus: applied.order.afterStatus
+      });
+    }
+
+    if (applied.inventoryConsumed) {
+      console.info("INVENTORY CONSUMED", {
+        orderId: applied.payment.orderId,
+        paymentId: applied.payment.id
+      });
+    }
+
+    if (applied.inventoryReleased) {
+      console.info("INVENTORY RELEASED", {
+        orderId: applied.payment.orderId,
+        paymentId: applied.payment.id
+      });
+    }
+
+    if (applied.payment.status === "captured" && applied.order !== undefined) {
+      await queues.enqueue({
+        name: jobNames.sendEmail,
+        metadata: {
+          tenantId: applied.payment.tenantId,
+          idempotencyKey: `order-confirmation:${applied.order.id}:${applied.payment.id}`,
+          createdAt: new Date().toISOString()
+        },
+        data: {
+          to: applied.order.email,
+          template: "order-confirmation",
+          variables: {
+            orderId: applied.order.id,
+            orderNumber: applied.order.orderNumber,
+            paymentStatus: "paid",
+            totalAmount: applied.order.totalAmount,
+            currency: applied.order.currency,
+            items: applied.order.items
+          }
+        }
+      });
+
+      console.info("EMAIL SENT", {
+        orderId: applied.order.id,
+        paymentId: applied.payment.id,
+        to: applied.order.email,
+        template: "order-confirmation"
+      });
+    }
+
+    return {
+      processed: true,
+      payment: applied.payment
+    };
   },
 
   async schedulePaymentRetry(input) {

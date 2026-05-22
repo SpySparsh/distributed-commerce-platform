@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import Stripe from "stripe";
 import type { ApiEnv } from "../../env.js";
 import {
   invalidWebhookSignatureError,
@@ -31,22 +31,19 @@ export interface PaymentProviderClient {
 }
 
 const toMinorUnits = (amount: string): number => Math.round(Number(amount) * 100);
-const stripeIntegrationVersion = "REST API via fetch; no stripe SDK in @ecommerce/api";
+const stripeIntegrationVersion = "stripe@22.1.1";
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown provider error";
 
-const safeEqual = (left: string, right: string): boolean => {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-};
-
 const getObjectRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
 
-const getString = (record: Record<string, unknown>, key: string): string | undefined => {
+const getString = (record: Record<string, unknown> | Stripe.Metadata | null | undefined, key: string): string | undefined => {
+  if (record === null || record === undefined) {
+    return undefined;
+  }
+
   const value = record[key];
   return typeof value === "string" ? value : undefined;
 };
@@ -54,6 +51,7 @@ const getString = (record: Record<string, unknown>, key: string): string | undef
 const stripeStatusMap = new Map<string, PaymentStatus>([
   ["checkout.session.completed", "captured"],
   ["checkout.session.async_payment_succeeded", "captured"],
+  ["checkout.session.expired", "failed"],
   ["checkout.session.async_payment_failed", "failed"],
   ["payment_intent.requires_payment_method", "failed"],
   ["payment_intent.processing", "pending"],
@@ -63,15 +61,39 @@ const stripeStatusMap = new Map<string, PaymentStatus>([
   ["charge.refunded", "refunded"]
 ]);
 
+const getPaymentIntentId = (
+  value: string | Stripe.PaymentIntent | null
+): string | undefined => {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value?.id;
+};
+
+const getChargeId = (
+  value: string | Stripe.Charge | null
+): string | undefined => {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value?.id;
+};
+
 class StripePaymentProviderClient implements PaymentProviderClient {
-  constructor(private readonly env: ApiEnv) {}
+  private readonly stripe: Stripe | undefined;
+
+  constructor(private readonly env: ApiEnv) {
+    this.stripe = env.STRIPE_SECRET_KEY === undefined
+      ? undefined
+      : new Stripe(env.STRIPE_SECRET_KEY);
+  }
 
   async createPayment(input: CreateProviderPaymentInput): Promise<Omit<PaymentInitiationDto, "payment">> {
-    if (this.env.STRIPE_SECRET_KEY === undefined) {
+    if (this.stripe === undefined) {
       throw paymentProviderNotConfiguredError();
     }
-
-    let payload: Record<string, unknown>;
 
     try {
       const successUrl = `${this.env.FRONTEND_URL.replace(/\/$/, "")}/order/${input.orderId}?payment=stripe-success`;
@@ -80,18 +102,32 @@ class StripePaymentProviderClient implements PaymentProviderClient {
         mode: "payment",
         success_url: successUrl,
         cancel_url: cancelUrl,
-        "payment_method_types[0]": "card",
-        "line_items[0][quantity]": "1",
-        "line_items[0][price_data][currency]": input.currency.toLowerCase(),
-        "line_items[0][price_data][unit_amount]": String(toMinorUnits(input.amount)),
-        "line_items[0][price_data][product_data][name]": `Order ${input.orderId}`,
-        "metadata[paymentId]": input.paymentId,
-        "metadata[orderId]": input.orderId,
-        "metadata[tenantId]": input.tenantId,
-        "payment_intent_data[metadata][paymentId]": input.paymentId,
-        "payment_intent_data[metadata][orderId]": input.orderId,
-        "payment_intent_data[metadata][tenantId]": input.tenantId
-      };
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: input.currency.toLowerCase(),
+              unit_amount: toMinorUnits(input.amount),
+              product_data: {
+                name: `Order ${input.orderId}`
+              }
+            }
+          }
+        ],
+        metadata: {
+          paymentId: input.paymentId,
+          orderId: input.orderId,
+          tenantId: input.tenantId
+        },
+        payment_intent_data: {
+          metadata: {
+            paymentId: input.paymentId,
+            orderId: input.orderId,
+            tenantId: input.tenantId
+          }
+        }
+      } satisfies Stripe.Checkout.SessionCreateParams;
 
       console.info("STRIPE CONFIG", {
         stripeConfigured: this.env.STRIPE_SECRET_KEY !== undefined,
@@ -101,99 +137,111 @@ class StripePaymentProviderClient implements PaymentProviderClient {
         stripePayload
       });
 
-      const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.env.STRIPE_SECRET_KEY}`,
-          "content-type": "application/x-www-form-urlencoded",
-          "idempotency-key": input.idempotencyKey
-        },
-        body: new URLSearchParams(stripePayload)
+      const session = await this.stripe.checkout.sessions.create(stripePayload, {
+        idempotencyKey: input.idempotencyKey
       });
-
-      payload = getObjectRecord(await response.json());
 
       console.info("STRIPE CHECKOUT SESSION RESPONSE", {
         paymentId: input.paymentId,
         orderId: input.orderId,
-        ok: response.ok,
-        status: response.status,
-        providerOrderId: getString(payload, "id"),
-        hasCheckoutUrl: getString(payload, "url") !== undefined,
-        errorMessage: getString(getObjectRecord(payload["error"]), "message")
+        providerOrderId: session.id,
+        hasCheckoutUrl: session.url !== null,
+        status: session.status
       });
 
-      if (!response.ok) {
-        throw paymentProviderRequestFailedError(
-          "Stripe",
-          getString(getObjectRecord(payload["error"]), "message") ?? "Stripe API rejected payment initiation"
-        );
-      }
+      return {
+        ...(session.url === null ? {} : { providerCheckoutUrl: session.url }),
+        providerOrderId: session.id
+      };
     } catch (error) {
-      if ("code" in Object(error)) {
-        throw error;
-      }
-
       console.error("PAYMENT PROVIDER ERROR:", error);
       if (error instanceof Error && error.stack !== undefined) {
         console.error(error.stack);
       }
       throw paymentProviderRequestFailedError("Stripe", toErrorMessage(error));
     }
-
-    const providerOrderId = getString(payload, "id");
-    const providerCheckoutUrl = getString(payload, "url");
-
-    return {
-      ...(providerCheckoutUrl === undefined ? {} : { providerCheckoutUrl }),
-      ...(providerOrderId === undefined ? {} : { providerOrderId })
-    };
   }
 
   verifyWebhook(input: { readonly rawBody: string; readonly signature: string | undefined }): VerifiedPaymentWebhook {
-    if (this.env.STRIPE_WEBHOOK_SECRET === undefined) {
+    if (this.stripe === undefined || this.env.STRIPE_WEBHOOK_SECRET === undefined) {
       throw paymentProviderNotConfiguredError();
     }
 
-    const signature = input.signature;
-    const timestamp = signature?.split(",").find((part) => part.startsWith("t="))?.slice(2);
-    const expectedSignature = signature?.split(",").find((part) => part.startsWith("v1="))?.slice(3);
-
-    if (timestamp === undefined || expectedSignature === undefined) {
+    if (input.signature === undefined) {
       throw invalidWebhookSignatureError();
     }
 
-    const ageSeconds = Math.abs(Date.now() / 1_000 - Number(timestamp));
+    let event: Stripe.Event;
 
-    if (!Number.isFinite(ageSeconds) || ageSeconds > this.env.PAYMENT_WEBHOOK_TOLERANCE_SECONDS) {
+    try {
+      event = this.stripe.webhooks.constructEvent(
+        input.rawBody,
+        input.signature,
+        this.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch {
       throw invalidWebhookSignatureError();
     }
 
-    const signedPayload = `${timestamp}.${input.rawBody}`;
-    const computed = createHmac("sha256", this.env.STRIPE_WEBHOOK_SECRET)
-      .update(signedPayload)
-      .digest("hex");
+    const rawPayload = getObjectRecord(JSON.parse(input.rawBody));
+    const eventType = event.type;
+    const status = stripeStatusMap.get(eventType) ?? "pending";
 
-    if (!safeEqual(computed, expectedSignature)) {
-      throw invalidWebhookSignatureError();
+    console.info("WEBHOOK RECEIVED", {
+      provider: "stripe",
+      eventType,
+      providerEventId: event.id
+    });
+
+    if (eventType.startsWith("checkout.session.")) {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const metadata = session.metadata;
+      const providerTransactionId = getPaymentIntentId(session.payment_intent);
+      const tenantId = getString(metadata, "tenantId");
+      const orderId = getString(metadata, "orderId");
+      const paymentId = getString(metadata, "paymentId");
+
+      return {
+        provider: "stripe",
+        providerEventId: event.id,
+        eventType,
+        ...(tenantId === undefined ? {} : { tenantId }),
+        ...(orderId === undefined ? {} : { orderId }),
+        ...(paymentId === undefined ? {} : { paymentId }),
+        providerPaymentId: session.id,
+        ...(providerTransactionId === undefined ? {} : { providerTransactionId }),
+        status,
+        payload: rawPayload
+      };
     }
 
-    const event = getObjectRecord(JSON.parse(input.rawBody));
-    const data = getObjectRecord(getObjectRecord(event["data"])["object"]);
-    const eventType = getString(event, "type") ?? "unknown";
-    const providerPaymentId = getString(data, "id");
-    const providerTransactionId =
-      getString(data, "payment_intent") ??
-      getString(data, "latest_charge");
+    if (eventType.startsWith("payment_intent.")) {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const metadata = paymentIntent.metadata;
+      const tenantId = getString(metadata, "tenantId");
+      const orderId = getString(metadata, "orderId");
+      const paymentId = getString(metadata, "paymentId");
+
+      return {
+        provider: "stripe",
+        providerEventId: event.id,
+        eventType,
+        ...(tenantId === undefined ? {} : { tenantId }),
+        ...(orderId === undefined ? {} : { orderId }),
+        ...(paymentId === undefined ? {} : { paymentId }),
+        providerPaymentId: paymentIntent.id,
+        providerTransactionId: getChargeId(paymentIntent.latest_charge) ?? paymentIntent.id,
+        status,
+        payload: rawPayload
+      };
+    }
 
     return {
       provider: "stripe",
-      providerEventId: getString(event, "id") ?? `${eventType}:unknown`,
+      providerEventId: event.id,
       eventType,
-      ...(providerPaymentId === undefined ? {} : { providerPaymentId }),
-      ...(providerTransactionId === undefined ? {} : { providerTransactionId }),
-      status: stripeStatusMap.get(eventType) ?? "pending",
-      payload: event
+      status,
+      payload: rawPayload
     };
   }
 }

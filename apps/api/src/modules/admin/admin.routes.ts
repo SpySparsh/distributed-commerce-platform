@@ -32,6 +32,21 @@ const slugify = (value: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
 
+const toAdminPaymentStatus = (status: string | undefined): string => {
+  switch (status) {
+    case "captured":
+      return "paid";
+    case "failed":
+    case "refunded":
+    case "cancelled":
+    case "authorized":
+    case "pending":
+      return status;
+    default:
+      return "pending";
+  }
+};
+
 const toAdminProduct = (product: {
   id: string;
   sku: string;
@@ -105,7 +120,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/dashboard/summary", { preHandler: adminGuard }, async (request) => {
     const tenantId = getAuthenticatedTenantId(request);
-    const [userCount, productCount, activeCartCount, totalOrders, revenueAggregate, ordersByStatus] =
+    const [userCount, productCount, activeCartCount, totalOrders, revenueAggregate, ordersByStatus, paymentsByStatus] =
       await Promise.all([
         app.prisma.user.count({ where: { tenantId, deletedAt: null } }),
         app.prisma.product.count({ where: { tenantId, deletedAt: null } }),
@@ -116,6 +131,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           _sum: { totalAmount: true }
         }),
         app.prisma.order.groupBy({
+          by: ["status"],
+          where: { tenantId, deletedAt: null },
+          _count: { _all: true }
+        }),
+        app.prisma.payment.groupBy({
           by: ["status"],
           where: { tenantId, deletedAt: null },
           _count: { _all: true }
@@ -132,6 +152,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         activeCartCount,
         ordersByStatus: ordersByStatus.map((item) => ({
           status: item.status,
+          count: item._count._all
+        })),
+        paymentsByStatus: paymentsByStatus.map((item) => ({
+          status: toAdminPaymentStatus(item.status),
           count: item._count._all
         }))
       }
@@ -241,27 +265,39 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = getAuthenticatedTenantId(request);
     const orders = await app.prisma.order.findMany({
       where: { tenantId, deletedAt: null },
-      include: { user: true, items: { where: { deletedAt: null } }, payments: true },
+      include: {
+        user: true,
+        items: { where: { deletedAt: null } },
+        payments: {
+          where: { deletedAt: null },
+          orderBy: { createdAt: "desc" }
+        }
+      },
       orderBy: { createdAt: "desc" },
       take: 100
     });
 
     return {
       ok: true,
-      data: orders.map((order) => ({
-        _id: order.id,
-        id: order.id,
-        orderNumber: order.orderNumber,
-        user: order.user === null ? undefined : { name: [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || order.user.email },
-        createdAt: order.createdAt.toISOString(),
-        totalAmount: order.totalAmount.toString(),
-        currency: order.currency,
-        status: order.status,
-        isPaid: ["paid", "fulfilled"].includes(order.status),
-        isDelivered: order.status === "fulfilled",
-        paymentMethod: order.payments[0]?.provider ?? "stripe",
-        itemCount: order.items.length
-      }))
+      data: orders.map((order) => {
+        const latestPayment = order.payments[0];
+
+        return {
+          _id: order.id,
+          id: order.id,
+          orderNumber: order.orderNumber,
+          user: order.user === null ? undefined : { name: [order.user.firstName, order.user.lastName].filter(Boolean).join(" ") || order.user.email },
+          createdAt: order.createdAt.toISOString(),
+          totalAmount: order.totalAmount.toString(),
+          currency: order.currency,
+          status: order.status,
+          paymentStatus: toAdminPaymentStatus(latestPayment?.status),
+          isPaid: latestPayment?.status === "captured" || ["paid", "fulfilled"].includes(order.status),
+          isDelivered: order.status === "fulfilled",
+          paymentMethod: latestPayment?.provider ?? "stripe",
+          itemCount: order.items.length
+        };
+      })
     };
   });
 

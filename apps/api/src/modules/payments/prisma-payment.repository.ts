@@ -4,7 +4,11 @@ import { paymentNotFoundError } from "./payment.errors.js";
 import type {
   ApplyPaymentWebhookInput,
   CreatePaymentInput,
+  OrderConfirmationDto,
+  OrderConfirmationItemDto,
   PaymentRepository,
+  PaymentWebhookApplicationResult,
+  PaymentWebhookLookupInput,
   PaymentWebhookEventDto,
   RecordWebhookInput,
   UpdateProviderPaymentInput,
@@ -136,6 +140,55 @@ const statusTimestamp = (status: PaymentStatus, now: Date): Record<string, Date>
   }
 };
 
+const sumReservationQuantity = (
+  reservations: readonly { readonly quantity: number }[]
+): number => reservations.reduce((total, reservation) => total + reservation.quantity, 0);
+
+const toConfirmationItem = (item: {
+  readonly name: string;
+  readonly sku: string;
+  readonly quantity: number;
+  readonly unitPrice: { toString(): string };
+  readonly totalAmount: { toString(): string };
+}): OrderConfirmationItemDto => ({
+  name: item.name,
+  sku: item.sku,
+  quantity: item.quantity,
+  unitPrice: item.unitPrice.toString(),
+  totalAmount: item.totalAmount.toString()
+});
+
+const toConfirmationOrder = (order: {
+  readonly id: string;
+  readonly orderNumber: string;
+  readonly email: string;
+  readonly status: string;
+  readonly totalAmount: { toString(): string };
+  readonly currency: string;
+  readonly items: readonly {
+    readonly name: string;
+    readonly sku: string;
+    readonly quantity: number;
+    readonly unitPrice: { toString(): string };
+    readonly totalAmount: { toString(): string };
+  }[];
+}, beforeStatus: string): OrderConfirmationDto => ({
+  id: order.id,
+  orderNumber: order.orderNumber,
+  email: order.email,
+  beforeStatus,
+  afterStatus: order.status,
+  totalAmount: order.totalAmount.toString(),
+  currency: order.currency,
+  items: order.items.map(toConfirmationItem)
+});
+
+const inventoryNotReservedError = (): Error =>
+  Object.assign(new Error("Reserved inventory is required before marking the order paid"), {
+    code: "ORDER_INVENTORY_NOT_RESERVED",
+    statusCode: 409
+  });
+
 export class PrismaPaymentRepository implements PaymentRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -196,6 +249,32 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return payment === null ? undefined : toPaymentDto(payment);
   }
 
+  async findPaymentByWebhookReference(input: PaymentWebhookLookupInput): Promise<PaymentDto | undefined> {
+    const references = [
+      ...(input.providerPaymentId === undefined ? [] : [{ providerPaymentId: input.providerPaymentId }]),
+      ...(input.paymentId === undefined ? [] : [{ id: input.paymentId }]),
+      ...(input.orderId === undefined ? [] : [{ orderId: input.orderId }])
+    ];
+
+    if (references.length === 0) {
+      return undefined;
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        provider: input.provider,
+        deletedAt: null,
+        ...(input.tenantId === undefined ? {} : { tenantId: input.tenantId }),
+        OR: references
+      },
+      orderBy: {
+        createdAt: "desc"
+      }
+    });
+
+    return payment === null ? undefined : toPaymentDto(payment);
+  }
+
   async updateProviderPayment(input: UpdateProviderPaymentInput): Promise<PaymentDto> {
     const payment = await this.prisma.payment.update({
       where: {
@@ -249,7 +328,7 @@ export class PrismaPaymentRepository implements PaymentRepository {
     }
   }
 
-  async applyWebhook(input: ApplyPaymentWebhookInput): Promise<PaymentDto | undefined> {
+  async applyWebhook(input: ApplyPaymentWebhookInput): Promise<PaymentWebhookApplicationResult | undefined> {
     return this.prisma.$transaction(async (tx) => {
       const event = await tx.paymentWebhookEvent.findFirst({
         where: {
@@ -283,9 +362,13 @@ export class PrismaPaymentRepository implements PaymentRepository {
         where: {
           tenantId: input.tenantId,
           provider: input.webhook.provider,
-          ...(input.webhook.providerPaymentId === undefined
-            ? {}
-            : { providerPaymentId: input.webhook.providerPaymentId }),
+          OR: [
+            ...(input.webhook.providerPaymentId === undefined
+              ? []
+              : [{ providerPaymentId: input.webhook.providerPaymentId }]),
+            ...(input.webhook.paymentId === undefined ? [] : [{ id: input.webhook.paymentId }]),
+            ...(input.webhook.orderId === undefined ? [] : [{ orderId: input.webhook.orderId }])
+          ],
           deletedAt: null
         }
       });
@@ -334,13 +417,116 @@ export class PrismaPaymentRepository implements PaymentRepository {
           deletedAt: null
         },
         select: {
+          id: true,
+          orderNumber: true,
+          email: true,
           cartId: true,
-          status: true
+          status: true,
+          totalAmount: true,
+          currency: true,
+          items: {
+            where: {
+              deletedAt: null
+            },
+            select: {
+              id: true,
+              variantId: true,
+              sku: true,
+              name: true,
+              quantity: true,
+              unitPrice: true,
+              totalAmount: true
+            }
+          }
         }
       });
 
-      if (input.webhook.status === "captured" && order !== null) {
-        await tx.order.update({
+      let confirmationOrder: OrderConfirmationDto | undefined;
+      let inventoryConsumed = false;
+      let inventoryReleased = false;
+
+      if (input.webhook.status === "captured" && order !== null && payment.status !== "captured") {
+        for (const item of order.items) {
+          const activeReservations = await tx.inventoryReservation.findMany({
+            where: {
+              tenantId: input.tenantId,
+              orderItemId: item.id,
+              status: "active",
+              deletedAt: null
+            },
+            select: {
+              id: true,
+              inventoryItemId: true,
+              variantId: true,
+              quantity: true
+            }
+          });
+
+          if (activeReservations.length === 0 || sumReservationQuantity(activeReservations) !== item.quantity) {
+            throw inventoryNotReservedError();
+          }
+
+          const reservationGroups = new Map<string, number>();
+
+          for (const reservation of activeReservations) {
+            if (reservation.variantId !== item.variantId) {
+              throw inventoryNotReservedError();
+            }
+
+            reservationGroups.set(
+              reservation.inventoryItemId,
+              (reservationGroups.get(reservation.inventoryItemId) ?? 0) + reservation.quantity
+            );
+          }
+
+          for (const [inventoryItemId, quantity] of reservationGroups) {
+            const consumedItems = await tx.$executeRaw`
+              UPDATE "InventoryItem"
+              SET "quantity" = "quantity" - ${quantity},
+                  "reserved" = "reserved" - ${quantity},
+                  "version" = "version" + 1,
+                  "updatedAt" = NOW()
+              WHERE "id" = ${inventoryItemId}::uuid
+                AND "tenantId" = ${input.tenantId}::uuid
+                AND "variantId" = ${item.variantId}::uuid
+                AND "quantity" >= ${quantity}
+                AND "reserved" >= ${quantity}
+            `;
+
+            if (consumedItems !== 1) {
+              throw inventoryNotReservedError();
+            }
+          }
+
+          const reservationIds = activeReservations.map((reservation) => reservation.id);
+
+          if (reservationIds.length === 0) {
+            throw inventoryNotReservedError();
+          }
+
+          const consumedReservations = await tx.inventoryReservation.updateMany({
+            where: {
+              id: {
+                in: reservationIds
+              },
+              tenantId: input.tenantId,
+              orderItemId: item.id,
+              status: "active"
+            },
+            data: {
+              status: "consumed",
+              consumedAt: now
+            }
+          });
+
+          if (consumedReservations.count !== activeReservations.length) {
+            throw inventoryNotReservedError();
+          }
+        }
+
+        inventoryConsumed = true;
+
+        const paidOrder = await tx.order.update({
           where: {
             id: payment.orderId
           },
@@ -350,6 +536,58 @@ export class PrismaPaymentRepository implements PaymentRepository {
             version: {
               increment: 1
             }
+          },
+          select: {
+            id: true,
+            orderNumber: true,
+            email: true,
+            status: true,
+            totalAmount: true,
+            currency: true,
+            items: {
+              where: {
+                deletedAt: null
+              },
+              select: {
+                name: true,
+                sku: true,
+                quantity: true,
+                unitPrice: true,
+                totalAmount: true
+              }
+            }
+          }
+        });
+
+        confirmationOrder = toConfirmationOrder(paidOrder, order.status);
+
+        await tx.orderEvent.create({
+          data: {
+            tenantId: input.tenantId,
+            orderId: payment.orderId,
+            type: "paid",
+            beforeStatus: order.status,
+            afterStatus: "paid",
+            requestId: input.webhook.providerEventId,
+            metadata: toJsonObject({
+              paymentId: payment.id,
+              providerEventId: input.webhook.providerEventId,
+              providerPaymentId: input.webhook.providerPaymentId ?? null,
+              providerTransactionId: input.webhook.providerTransactionId ?? null
+            })
+          }
+        });
+
+        await tx.orderEvent.create({
+          data: {
+            tenantId: input.tenantId,
+            orderId: payment.orderId,
+            type: "inventory_consumed",
+            requestId: input.webhook.providerEventId,
+            metadata: toJsonObject({
+              paymentId: payment.id,
+              itemCount: order.items.length
+            })
           }
         });
 
@@ -367,6 +605,124 @@ export class PrismaPaymentRepository implements PaymentRepository {
             }
           });
         }
+      }
+
+      if (input.webhook.status === "failed" && order !== null && !["paid", "fulfilled", "refunded", "cancelled"].includes(order.status)) {
+        for (const item of order.items) {
+          const activeReservations = await tx.inventoryReservation.findMany({
+            where: {
+              tenantId: input.tenantId,
+              orderItemId: item.id,
+              status: "active",
+              deletedAt: null
+            },
+            select: {
+              id: true,
+              inventoryItemId: true,
+              quantity: true
+            }
+          });
+
+          const reservationGroups = new Map<string, number>();
+
+          for (const reservation of activeReservations) {
+            reservationGroups.set(
+              reservation.inventoryItemId,
+              (reservationGroups.get(reservation.inventoryItemId) ?? 0) + reservation.quantity
+            );
+          }
+
+          for (const [inventoryItemId, quantity] of reservationGroups) {
+            const releasedItems = await tx.$executeRaw`
+              UPDATE "InventoryItem"
+              SET "reserved" = "reserved" - ${quantity},
+                  "version" = "version" + 1,
+                  "updatedAt" = NOW()
+              WHERE "id" = ${inventoryItemId}::uuid
+                AND "tenantId" = ${input.tenantId}::uuid
+                AND "reserved" >= ${quantity}
+            `;
+
+            if (releasedItems !== 1) {
+              throw inventoryNotReservedError();
+            }
+          }
+
+          const reservationIds = activeReservations.map((reservation) => reservation.id);
+
+          if (reservationIds.length > 0) {
+            const releasedReservations = await tx.inventoryReservation.updateMany({
+              where: {
+                id: {
+                  in: reservationIds
+                },
+                tenantId: input.tenantId,
+                orderItemId: item.id,
+                status: "active"
+              },
+              data: {
+                status: "released",
+                releasedAt: now
+              }
+            });
+
+            if (releasedReservations.count !== activeReservations.length) {
+              throw inventoryNotReservedError();
+            }
+
+            inventoryReleased = true;
+          }
+        }
+
+        const cancelledOrder = await tx.order.update({
+          where: {
+            id: payment.orderId
+          },
+          data: {
+            status: "cancelled",
+            version: {
+              increment: 1
+            }
+          },
+          select: {
+            id: true,
+            orderNumber: true,
+            email: true,
+            status: true,
+            totalAmount: true,
+            currency: true,
+            items: {
+              where: {
+                deletedAt: null
+              },
+              select: {
+                name: true,
+                sku: true,
+                quantity: true,
+                unitPrice: true,
+                totalAmount: true
+              }
+            }
+          }
+        });
+
+        confirmationOrder = toConfirmationOrder(cancelledOrder, order.status);
+
+        await tx.orderEvent.create({
+          data: {
+            tenantId: input.tenantId,
+            orderId: payment.orderId,
+            type: "cancelled",
+            beforeStatus: order.status,
+            afterStatus: "cancelled",
+            requestId: input.webhook.providerEventId,
+            reason: "Payment provider reported failure or session expiry",
+            metadata: toJsonObject({
+              paymentId: payment.id,
+              providerEventId: input.webhook.providerEventId
+            })
+          }
+        });
       }
 
       if (input.webhook.status === "captured" && payment.status !== "captured") {
@@ -402,7 +758,12 @@ export class PrismaPaymentRepository implements PaymentRepository {
         });
       }
 
-      return toPaymentDto(updated);
+      return {
+        payment: toPaymentDto(updated),
+        ...(confirmationOrder === undefined ? {} : { order: confirmationOrder }),
+        inventoryConsumed,
+        inventoryReleased
+      };
     });
   }
 
