@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ApiEnv } from "../../env.js";
 import {
   invalidWebhookSignatureError,
-  paymentProviderNotConfiguredError
+  paymentProviderNotConfiguredError,
+  paymentProviderRequestFailedError
 } from "./payment.errors.js";
 import type {
   PaymentInitiationDto,
@@ -30,6 +31,9 @@ export interface PaymentProviderClient {
 }
 
 const toMinorUnits = (amount: string): number => Math.round(Number(amount) * 100);
+
+const toErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown provider error";
 
 const safeEqual = (left: string, right: string): boolean => {
   const leftBuffer = Buffer.from(left);
@@ -70,27 +74,41 @@ class StripePaymentProviderClient implements PaymentProviderClient {
       throw paymentProviderNotConfiguredError();
     }
 
-    const response = await fetch("https://api.stripe.com/v1/payment_intents", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.env.STRIPE_SECRET_KEY}`,
-        "content-type": "application/x-www-form-urlencoded",
-        "idempotency-key": input.idempotencyKey
-      },
-      body: new URLSearchParams({
-        amount: String(toMinorUnits(input.amount)),
-        currency: input.currency.toLowerCase(),
-        "metadata[paymentId]": input.paymentId,
-        "metadata[orderId]": input.orderId,
-        "metadata[tenantId]": input.tenantId,
-        automatic_payment_methods: "true"
-      })
-    });
+    let payload: Record<string, unknown>;
 
-    const payload = getObjectRecord(await response.json());
+    try {
+      const response = await fetch("https://api.stripe.com/v1/payment_intents", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.env.STRIPE_SECRET_KEY}`,
+          "content-type": "application/x-www-form-urlencoded",
+          "idempotency-key": input.idempotencyKey
+        },
+        body: new URLSearchParams({
+          amount: String(toMinorUnits(input.amount)),
+          currency: input.currency.toLowerCase(),
+          "metadata[paymentId]": input.paymentId,
+          "metadata[orderId]": input.orderId,
+          "metadata[tenantId]": input.tenantId,
+          automatic_payment_methods: "true"
+        })
+      });
 
-    if (!response.ok) {
-      throw new Error(getString(getObjectRecord(payload["error"]), "message") ?? "Stripe payment initiation failed");
+      payload = getObjectRecord(await response.json());
+
+      if (!response.ok) {
+        throw paymentProviderRequestFailedError(
+          "Stripe",
+          getString(getObjectRecord(payload["error"]), "message") ?? "Stripe API rejected payment initiation"
+        );
+      }
+    } catch (error) {
+      if ("code" in Object(error)) {
+        throw error;
+      }
+
+      console.error("PAYMENT PROVIDER ERROR:", error);
+      throw paymentProviderRequestFailedError("Stripe", toErrorMessage(error));
     }
 
     const clientSecret = getString(payload, "client_secret");
@@ -156,29 +174,62 @@ class RazorpayPaymentProviderClient implements PaymentProviderClient {
       throw paymentProviderNotConfiguredError();
     }
 
-    const credentials = Buffer.from(`${this.env.RAZORPAY_KEY_ID}:${this.env.RAZORPAY_KEY_SECRET}`).toString("base64");
-    const response = await fetch("https://api.razorpay.com/v1/orders", {
-      method: "POST",
-      headers: {
-        authorization: `Basic ${credentials}`,
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        amount: toMinorUnits(input.amount),
-        currency: input.currency,
-        receipt: input.orderId,
-        notes: {
-          paymentId: input.paymentId,
-          tenantId: input.tenantId,
-          idempotencyKey: input.idempotencyKey
-        }
-      })
+    const amount = toMinorUnits(input.amount);
+    const currency = "INR";
+
+    console.info("RAZORPAY CONFIG", {
+      key: this.env.RAZORPAY_KEY_ID !== undefined,
+      secret: this.env.RAZORPAY_KEY_SECRET !== undefined
+    });
+    console.info("RAZORPAY ORDER PAYLOAD", {
+      paymentId: input.paymentId,
+      orderId: input.orderId,
+      amount,
+      currency,
+      sourceCurrency: input.currency
     });
 
-    const payload = getObjectRecord(await response.json());
+    const credentials = Buffer.from(`${this.env.RAZORPAY_KEY_ID}:${this.env.RAZORPAY_KEY_SECRET}`).toString("base64");
+    let payload: Record<string, unknown>;
 
-    if (!response.ok) {
-      throw new Error(getString(getObjectRecord(payload["error"]), "description") ?? "Razorpay payment initiation failed");
+    try {
+      const response = await fetch("https://api.razorpay.com/v1/orders", {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${credentials}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          amount,
+          currency,
+          receipt: input.orderId,
+          notes: {
+            paymentId: input.paymentId,
+            tenantId: input.tenantId,
+            idempotencyKey: input.idempotencyKey,
+            sourceCurrency: input.currency
+          }
+        })
+      });
+
+      payload = getObjectRecord(await response.json());
+
+      if (!response.ok) {
+        throw paymentProviderRequestFailedError(
+          "Razorpay",
+          getString(getObjectRecord(payload["error"]), "description") ?? "Razorpay API rejected order creation"
+        );
+      }
+    } catch (error) {
+      if ("code" in Object(error)) {
+        throw error;
+      }
+
+      console.error("PAYMENT PROVIDER ERROR:", error);
+      if (error instanceof Error && error.stack !== undefined) {
+        console.error(error.stack);
+      }
+      throw paymentProviderRequestFailedError("Razorpay", toErrorMessage(error));
     }
 
     const providerOrderId = getString(payload, "id");

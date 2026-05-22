@@ -72,7 +72,10 @@ export const registerErrorHandler = (app: FastifyInstance): void => {
   app.setErrorHandler(
     async (error: FastifyError | Error, request: FastifyRequest, reply: FastifyReply) => {
       const statusCode = getStatusCode(error);
-      const message = statusCode >= 500 ? "Internal server error" : error.message;
+      const message =
+        statusCode >= 500 && process.env["NODE_ENV"] === "production"
+          ? "Internal server error"
+          : error.message;
 
       request.log.error(
         {
