@@ -30,6 +30,73 @@ const instance = axios.create({
   withCredentials: true // needed for refresh token cookie
 });
 
+const authExpiredEventName = 'ecommerce:auth-expired';
+let refreshPromise;
+
+const isAuthEndpoint = (url = '') =>
+  url.startsWith('/auth/login') ||
+  url.startsWith('/auth/register') ||
+  url.startsWith('/auth/refresh') ||
+  url.startsWith('/auth/logout');
+
+const clearBrowserAuth = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  localStorage.removeItem('token');
+  localStorage.removeItem('csrfToken');
+  localStorage.removeItem('activeCartId');
+};
+
+const notifyAuthExpired = () => {
+  clearBrowserAuth();
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(authExpiredEventName));
+  }
+};
+
+export const onAuthExpired = (handler) => {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  window.addEventListener(authExpiredEventName, handler);
+  return () => window.removeEventListener(authExpiredEventName, handler);
+};
+
+const refreshAccessToken = async () => {
+  if (typeof window === 'undefined') {
+    throw new Error('Cannot refresh auth outside the browser.');
+  }
+
+  const csrfToken = localStorage.getItem('csrfToken');
+
+  if (!csrfToken) {
+    throw new Error('Missing CSRF token.');
+  }
+
+  if (!refreshPromise) {
+    refreshPromise = instance.post('/auth/refresh', { csrfToken }, { skipAuthRefresh: true })
+      .then((response) => {
+        const { accessToken, csrfToken: nextCsrfToken } = response.data;
+        localStorage.setItem('token', accessToken);
+
+        if (nextCsrfToken) {
+          localStorage.setItem('csrfToken', nextCsrfToken);
+        }
+
+        return accessToken;
+      })
+      .finally(() => {
+        refreshPromise = undefined;
+      });
+  }
+
+  return refreshPromise;
+};
+
 instance.interceptors.request.use(async (config) => {
   if (isTenantScopedCatalogRequest(config.url)) {
     config.params = await withTenantParams(config.params);
@@ -42,7 +109,7 @@ instance.interceptors.request.use(async (config) => {
   const token = localStorage.getItem('token');
   const csrfToken = localStorage.getItem('csrfToken');
 
-  if (token && config.headers.Authorization === undefined) {
+  if (token && !isAuthEndpoint(config.url) && config.headers.Authorization === undefined) {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
@@ -57,7 +124,7 @@ instance.interceptors.request.use(async (config) => {
   return config;
 });
 
-instance.interceptors.response.use((response) => {
+const normalizeApiResponse = (response) => {
   if (response.data?.ok !== true || response.data.data === undefined) {
     return response;
   }
@@ -94,6 +161,41 @@ instance.interceptors.response.use((response) => {
 
   response.data = payload;
   return response;
-});
+};
+
+instance.interceptors.response.use(
+  normalizeApiResponse,
+  async (error) => {
+    const status = error.response?.status;
+    const code = error.response?.data?.error?.code;
+    const originalRequest = error.config || {};
+
+    if (
+      status === 401 &&
+      code === 'INVALID_SESSION' &&
+      !originalRequest._retry &&
+      !originalRequest.skipAuthRefresh &&
+      !isAuthEndpoint(originalRequest.url || '')
+    ) {
+      try {
+        originalRequest._retry = true;
+        const token = await refreshAccessToken();
+        originalRequest.headers = {
+          ...(originalRequest.headers || {}),
+          Authorization: `Bearer ${token}`
+        };
+        return instance(originalRequest);
+      } catch {
+        notifyAuthExpired();
+      }
+    }
+
+    if (status === 401 && code === 'INVALID_SESSION' && !isAuthEndpoint(originalRequest.url || '')) {
+      notifyAuthExpired();
+    }
+
+    return Promise.reject(error);
+  }
+);
 
 export default instance;

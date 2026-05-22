@@ -9,7 +9,7 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
   const [qty, setQty] = useState(1);
-  const [reviews, setReviews] = useState([]);
+  const reviews = [];
   const handleBuyNow = () => {
   localStorage.setItem('buyNow', JSON.stringify({ product, qty }));
   navigate('/checkout');
@@ -26,17 +26,7 @@ export default function ProductDetail() {
       }
     };
 
-    const fetchReviews = async () => {
-      try {
-        const res = await axios.get(`/reviews/${id}`);
-        setReviews(res.data);
-      } catch (err) {
-        console.error('Reviews fetch error:', err.message);
-      }
-    };
-
     fetchProduct();
-    fetchReviews();
   }, [id]);
 
   if (!product) return <p className="p-6">Loading...</p>;

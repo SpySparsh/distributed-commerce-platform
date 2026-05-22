@@ -27,7 +27,10 @@ export const requireAuth = async (request: FastifyRequest, _reply: FastifyReply)
     throw invalidSessionError();
   }
 
-  const claims = await verifyAccessToken(request.server.config, token);
+  const claims = await verifyAccessToken(request.server.config, token).catch((error: unknown) => {
+    request.log.warn({ err: error }, "Rejected invalid or expired access token");
+    throw invalidSessionError();
+  });
 
   if (claims.sub.length === 0) {
     throw invalidSessionError();

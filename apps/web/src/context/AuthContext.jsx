@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import axios from '../api/axios';
+import axios, { onAuthExpired } from '../api/axios';
 
 const AuthContext = createContext();
 
@@ -28,6 +28,12 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('csrfToken');
   };
 
+  const clearAuthState = () => {
+    setAuth({ user: null, accessToken: null, csrfToken: null });
+    localStorage.removeItem('token');
+    localStorage.removeItem('csrfToken');
+  };
+
   useEffect(() => {
     const refresh = async () => {
       const csrfToken = localStorage.getItem('csrfToken');
@@ -42,14 +48,23 @@ export const AuthProvider = ({ children }) => {
         login(res.data.user, res.data.accessToken, res.data.csrfToken);
       } catch (err) {
         console.error('Token refresh failed', err);
-        localStorage.removeItem('token');
-        localStorage.removeItem('csrfToken');
+        clearAuthState();
       } finally {
         setIsHydrating(false);
       }
     };
 
     refresh();
+  }, []);
+
+  useEffect(() => {
+    return onAuthExpired(() => {
+      clearAuthState();
+
+      if (window.location.pathname !== '/login') {
+        window.location.assign('/login');
+      }
+    });
   }, []);
 
   return (
