@@ -14,7 +14,7 @@ import {
   checkoutInventoryUnavailableError,
   checkoutPaymentConflictError
 } from "./checkout.errors.js";
-import type { StartCheckoutBody } from "./checkout.schemas.js";
+import type { StartBuyNowCheckoutBody, StartCheckoutBody } from "./checkout.schemas.js";
 import type { CheckoutResultDto } from "./checkout.types.js";
 
 interface ProductVariantSnapshot {
@@ -99,6 +99,12 @@ interface PaymentRow {
   readonly refundedAt: Date | null;
   readonly createdAt: Date;
   readonly updatedAt: Date;
+}
+
+interface CheckoutPersistenceResult {
+  readonly cart?: CartDto;
+  readonly order: OrderDto;
+  readonly payment: PaymentDto;
 }
 
 const orderInclude = {
@@ -206,6 +212,7 @@ const toPaymentDto = (row: PaymentRow): PaymentDto => ({
 
 export interface CheckoutRepository {
   startCheckout(input: StartCheckoutBody, cart: CartDto | undefined, actor: OrderActor): Promise<CheckoutResultDto>;
+  startBuyNowCheckout(input: StartBuyNowCheckoutBody, actor: OrderActor): Promise<CheckoutResultDto>;
 }
 
 export class PrismaCheckoutRepository implements CheckoutRepository {
@@ -265,10 +272,151 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
     return this.createProviderIntentSafely(result, input.provider ?? result.payment.provider);
   }
 
+  async startBuyNowCheckout(input: StartBuyNowCheckoutBody, actor: OrderActor): Promise<CheckoutResultDto> {
+    const existing = await this.findExistingCheckout(input.tenantId, input.idempotencyKey);
+
+    if (existing !== undefined) {
+      return this.createProviderIntentSafely(existing, input.provider ?? existing.payment.provider);
+    }
+
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const variant = await tx.productVariant.findFirst({
+          where: {
+            id: input.variantId,
+            productId: input.productId,
+            tenantId: input.tenantId,
+            status: "active",
+            deletedAt: null
+          },
+          select: {
+            id: true,
+            productId: true,
+            sku: true,
+            name: true,
+            price: true,
+            currency: true
+          }
+        });
+
+        if (variant === null) {
+          throw checkoutCartMismatchError();
+        }
+
+        const updatedItems = await tx.$executeRaw`
+          UPDATE "InventoryItem"
+          SET "reserved" = "reserved" + ${input.quantity},
+              "version" = "version" + 1,
+              "updatedAt" = NOW()
+          WHERE "tenantId" = ${input.tenantId}::uuid
+            AND "variantId" = ${input.variantId}::uuid
+            AND "deletedAt" IS NULL
+            AND ("quantity" - "reserved" - "safetyStock") >= ${input.quantity}
+        `;
+
+        if (updatedItems !== 1) {
+          throw checkoutInventoryUnavailableError();
+        }
+
+        const inventoryItem = await tx.inventoryItem.findFirst({
+          where: {
+            tenantId: input.tenantId,
+            variantId: input.variantId,
+            deletedAt: null
+          },
+          select: {
+            id: true
+          }
+        });
+
+        if (inventoryItem === null) {
+          throw checkoutInventoryUnavailableError();
+        }
+
+        const totalAmount = multiplyMoney(variant.price.toString(), input.quantity);
+        const order = await tx.order.create({
+          data: {
+            tenantId: input.tenantId,
+            userId: input.userId,
+            orderNumber: createOrderNumber(),
+            email: input.email,
+            subtotalAmount: totalAmount,
+            taxAmount: "0.00",
+            shippingAmount: "0.00",
+            discountAmount: "0.00",
+            totalAmount,
+            currency: variant.currency,
+            shippingAddress: toJsonObject(input.shippingAddress),
+            ...(input.billingAddress === undefined ? {} : { billingAddress: toJsonObject(input.billingAddress) }),
+            items: {
+              create: {
+                tenantId: input.tenantId,
+                productId: variant.productId,
+                variantId: variant.id,
+                sku: variant.sku,
+                name: variant.name,
+                quantity: input.quantity,
+                unitPrice: variant.price,
+                totalAmount,
+                currency: variant.currency
+              }
+            }
+          },
+          include: orderInclude
+        });
+        const orderItem = order.items[0];
+
+        if (orderItem === undefined) {
+          throw checkoutCartMismatchError();
+        }
+
+        await tx.inventoryReservation.create({
+          data: {
+            tenantId: input.tenantId,
+            inventoryItemId: inventoryItem.id,
+            variantId: variant.id,
+            orderItemId: orderItem.id,
+            idempotencyKey: `buy-now:${input.idempotencyKey}:${variant.id}`,
+            quantity: input.quantity,
+            expiresAt: new Date(Date.now() + reservationTtlMs)
+          }
+        });
+
+        await tx.orderEvent.create({
+          data: {
+            tenantId: input.tenantId,
+            orderId: order.id,
+            type: "created",
+            afterStatus: "pending",
+            ...(actor.userId === undefined ? {} : { actorUserId: actor.userId }),
+            ...(actor.requestId === undefined ? {} : { requestId: actor.requestId }),
+            metadata: {
+              checkoutMode: "buy_now",
+              checkoutIdempotencyKey: input.idempotencyKey
+            }
+          }
+        });
+
+        const payment = await this.createLocalPayment(tx, input, order);
+
+        return {
+          order: toOrderDto(order),
+          payment: toPaymentDto(payment)
+        };
+      },
+      {
+        maxWait: 5_000,
+        timeout: 20_000
+      }
+    );
+
+    return this.createProviderIntentSafely(result, input.provider ?? result.payment.provider);
+  }
+
   private async findExistingCheckout(
     tenantId: string,
     idempotencyKey: string
-  ): Promise<{ readonly cart: CartDto; readonly order: OrderDto; readonly payment: PaymentDto } | undefined> {
+  ): Promise<CheckoutPersistenceResult | undefined> {
     const payment = await this.prisma.payment.findFirst({
       where: {
         tenantId,
@@ -290,55 +438,59 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       include: orderInclude
     });
 
-    if (order === null || order.cartId === null) {
+    if (order === null) {
       throw checkoutPaymentConflictError();
     }
 
-    const cart = await this.prisma.cart.findFirst({
-      where: {
-        id: order.cartId,
-        tenantId,
-        deletedAt: null
-      },
-      include: {
-        items: {
-          where: { deletedAt: null },
-          orderBy: { createdAt: "asc" }
-        }
-      }
-    });
+    const cart = order.cartId === null
+      ? null
+      : await this.prisma.cart.findFirst({
+          where: {
+            id: order.cartId,
+            tenantId,
+            deletedAt: null
+          },
+          include: {
+            items: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: "asc" }
+            }
+          }
+        });
 
-    if (cart === null) {
+    if (order.cartId !== null && cart === null) {
       throw checkoutPaymentConflictError();
     }
 
     return {
-      cart: {
-        id: cart.id,
-        tenantId: cart.tenantId,
-        ...(cart.userId === null ? {} : { userId: cart.userId }),
-        ...(cart.guestId === null ? {} : { guestId: cart.guestId }),
-        ...(cart.deviceId === null ? {} : { deviceId: cart.deviceId }),
-        status: cart.status,
-        version: cart.version,
-        items: cart.items.map((item) => ({
-          productId: item.productId,
-          variantId: item.variantId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice.toString(),
-          currency: item.currency,
-          updatedAt: item.updatedAt.toISOString()
-        })),
-        updatedAt: cart.updatedAt.toISOString(),
-        expiresAt: (cart.expiresAt ?? new Date()).toISOString()
-      },
+      ...(cart === null ? {} : {
+        cart: {
+          id: cart.id,
+          tenantId: cart.tenantId,
+          ...(cart.userId === null ? {} : { userId: cart.userId }),
+          ...(cart.guestId === null ? {} : { guestId: cart.guestId }),
+          ...(cart.deviceId === null ? {} : { deviceId: cart.deviceId }),
+          status: cart.status,
+          version: cart.version,
+          items: cart.items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice.toString(),
+            currency: item.currency,
+            updatedAt: item.updatedAt.toISOString()
+          })),
+          updatedAt: cart.updatedAt.toISOString(),
+          expiresAt: (cart.expiresAt ?? new Date()).toISOString()
+        }
+      }),
       order: toOrderDto(order),
       payment: toPaymentDto(payment)
     };
   }
 
   private async createProviderIntent(
-    result: { readonly cart: CartDto; readonly order: OrderDto; readonly payment: PaymentDto },
+    result: CheckoutPersistenceResult,
     provider: PaymentProvider
   ): Promise<CheckoutResultDto> {
     if (result.payment.provider !== provider) {
@@ -347,7 +499,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
 
     if (provider === "cod" || provider === "manual") {
       return {
-        cart: result.cart,
+        ...(result.cart === undefined ? {} : { cart: result.cart }),
         order: result.order,
         payment: {
           payment: result.payment
@@ -380,14 +532,14 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
     };
 
     return {
-      cart: result.cart,
+      ...(result.cart === undefined ? {} : { cart: result.cart }),
       order: result.order,
       payment
     };
   }
 
   private async createProviderIntentSafely(
-    result: { readonly cart: CartDto; readonly order: OrderDto; readonly payment: PaymentDto },
+    result: CheckoutPersistenceResult,
     provider: PaymentProvider
   ): Promise<CheckoutResultDto> {
     return this.createProviderIntent(result, provider);
@@ -877,7 +1029,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
 
   private async createLocalPayment(
     tx: Prisma.TransactionClient,
-    input: StartCheckoutBody,
+    input: Pick<StartCheckoutBody, "tenantId" | "provider" | "idempotencyKey">,
     order: OrderRow
   ): Promise<PaymentRow> {
     return tx.payment.create({

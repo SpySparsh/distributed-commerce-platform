@@ -5,7 +5,7 @@ import { getAuthenticatedTenantId, getAuthenticatedUserId, requirePermission } f
 import { permissions } from "../auth/permissions.js";
 import type { OrderActor } from "../orders/order.repository.js";
 import type { CheckoutRepository } from "./checkout.repository.js";
-import { startCheckoutBodySchema } from "./checkout.schemas.js";
+import { startBuyNowCheckoutBodySchema, startCheckoutBodySchema } from "./checkout.schemas.js";
 
 const createRedisCacheClient = (app: Parameters<FastifyPluginAsync>[0]): RedisCacheClient => ({
   get: (key) => app.redis.get(key),
@@ -69,13 +69,26 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         "Starting checkout"
       );
 
-      const checkout = await options.repository.startCheckout({
+      let checkout;
+
+      try {
+        request.log.info("STEP 1: validate cart");
+        request.log.info("STEP 2: reserve inventory");
+        request.log.info("STEP 3: create order");
+        request.log.info("STEP 4: create payment");
+        request.log.info("STEP 5: initialize payment provider");
+        checkout = await options.repository.startCheckout({
         ...body,
         tenantId,
         userId
-      }, cachedCart, getActor(request));
+        }, cachedCart, getActor(request));
+        request.log.info("STEP 6: finalize response");
+      } catch (error) {
+        request.log.error({ err: error, cartId: body.cartId, tenantId, userId }, "FAILED CHECKOUT STEP");
+        throw error;
+      }
 
-      if (checkout.cart.status === "converted") {
+      if (checkout.cart?.status === "converted") {
         try {
           await deleteCart(redis, tenantId, body.cartId);
         } catch (error) {
@@ -89,6 +102,57 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
             "Checkout succeeded but cart cache invalidation failed"
           );
         }
+      }
+
+      await reply.status(201).send({
+        ok: true,
+        data: checkout
+      });
+    }
+  );
+
+  app.post(
+    "/buy-now",
+    {
+      preHandler: [
+        requirePermission(permissions.checkoutWrite),
+        withRateLimit({ keyPrefix: "checkout:buy-now", maxRequests: 30 }),
+        validateRequest({ body: startBuyNowCheckoutBodySchema })
+      ]
+    },
+    async (request, reply) => {
+      const body = startBuyNowCheckoutBodySchema.parse(request.body);
+      const tenantId = getAuthenticatedTenantId(request);
+      const userId = getAuthenticatedUserId(request);
+
+      request.log.info(
+        {
+          productId: body.productId,
+          variantId: body.variantId,
+          quantity: body.quantity,
+          tenantId,
+          userId
+        },
+        "Starting buy-now checkout without cart mutation"
+      );
+
+      let checkout;
+
+      try {
+        request.log.info("BUY_NOW STEP 1: validate product snapshot");
+        request.log.info("BUY_NOW STEP 2: reserve inventory");
+        request.log.info("BUY_NOW STEP 3: create order");
+        request.log.info("BUY_NOW STEP 4: create payment");
+        request.log.info("BUY_NOW STEP 5: initialize payment provider");
+        checkout = await options.repository.startBuyNowCheckout({
+          ...body,
+          tenantId,
+          userId
+        }, getActor(request));
+        request.log.info("BUY_NOW STEP 6: finalize response");
+      } catch (error) {
+        request.log.error({ err: error, tenantId, userId, productId: body.productId, variantId: body.variantId }, "FAILED BUY-NOW CHECKOUT STEP");
+        throw error;
       }
 
       await reply.status(201).send({

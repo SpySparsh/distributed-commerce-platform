@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from '../api/axios';
 
-const checkoutIdempotencyStorageKey = (cartId) => `checkout:idempotency:${cartId}`;
+const checkoutIdempotencyStorageKey = (key) => `checkout:idempotency:${key}`;
 
 const createCheckoutIdempotencyKey = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -24,7 +24,7 @@ const getCheckoutIdempotencyKey = (cartId) => {
 
   const next = createCheckoutIdempotencyKey();
   localStorage.setItem(storageKey, next);
-  return next;
+  return `${cartId}:${next}`;
 };
 
 const clearCheckoutIdempotencyKey = (cartId) => {
@@ -77,21 +77,6 @@ export default function Checkout() {
     return parsed;
   };
 
-  const createBuyNowCheckoutCart = async () => {
-    const { product, quantity } = getBuyNowPayload();
-    const cartResponse = await axios.post('/carts');
-    const temporaryCart = cartResponse.data.cart ?? cartResponse.data;
-    const itemResponse = await axios.post(`/carts/${temporaryCart.id}/items`, {
-      productId: product._id,
-      variantId: product.variantId,
-      quantity,
-      unitPrice: String(product.price),
-      currency: product.currency || 'USD'
-    });
-
-    return itemResponse.data.cart ?? itemResponse.data;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -102,13 +87,16 @@ export default function Checkout() {
     if (!user?.email) return alert('Please login before checkout');
 
     let activeCart;
+    let idempotencyScope;
 
     try {
       setLoading(true);
-      activeCart = isBuyNow ? await createBuyNowCheckoutCart() : await getOrCreateActiveCart();
+      const buyNowPayload = isBuyNow ? getBuyNowPayload() : undefined;
+      activeCart = isBuyNow ? undefined : await getOrCreateActiveCart();
 
-      if (!activeCart?.id) return alert('Cart is not ready yet');
-      if (!activeCart.items?.length) return alert('No items to order');
+      if (!isBuyNow && !activeCart?.id) return alert('Cart is not ready yet');
+      if (!isBuyNow && !activeCart.items?.length) return alert('No items to order');
+      if (isBuyNow && buyNowPayload === undefined) return alert('Buy Now checkout is not ready yet');
 
       const provider =
         paymentMethod === 'UPI'
@@ -116,29 +104,35 @@ export default function Checkout() {
           : paymentMethod === 'Card'
             ? 'stripe'
             : 'cod';
-      const idempotencyKey = getCheckoutIdempotencyKey(activeCart.id);
-      const checkoutPayload = {
-        cartId: activeCart.id,
-        email: user.email,
-        shippingAddress: shipping,
-        billingAddress: shipping,
-        provider,
-        idempotencyKey
-      };
+      idempotencyScope = isBuyNow
+        ? `buy-now:${buyNowPayload.product.variantId}:${buyNowPayload.quantity}`
+        : activeCart.id;
+      const idempotencyKey = getCheckoutIdempotencyKey(idempotencyScope);
+      const checkoutPayload = isBuyNow
+        ? {
+            productId: buyNowPayload.product._id,
+            variantId: buyNowPayload.product.variantId,
+            quantity: buyNowPayload.quantity,
+            email: user.email,
+            shippingAddress: shipping,
+            billingAddress: shipping,
+            provider,
+            idempotencyKey
+          }
+        : {
+            cartId: activeCart.id,
+            email: user.email,
+            shippingAddress: shipping,
+            billingAddress: shipping,
+            provider,
+            idempotencyKey
+          };
       let checkout;
 
       try {
-        ({ data: checkout } = await axios.post('/checkout/start', checkoutPayload));
+        ({ data: checkout } = await axios.post(isBuyNow ? '/checkout/buy-now' : '/checkout/start', checkoutPayload));
       } catch (err) {
-        if (err.response?.status < 500) {
-          throw err;
-        }
-
-        console.warn('Checkout returned a server error; retrying once with same idempotency key', {
-          cartId: activeCart.id,
-          idempotencyKey
-        });
-        ({ data: checkout } = await axios.post('/checkout/start', checkoutPayload));
+        throw err;
       }
 
       if (provider === 'razorpay') {
@@ -170,7 +164,7 @@ export default function Checkout() {
               providerPaymentId: response.razorpay_payment_id,
               signature: response.razorpay_signature
             });
-            clearCheckoutIdempotencyKey(activeCart.id);
+            clearCheckoutIdempotencyKey(idempotencyScope);
             localStorage.removeItem('buyNowCheckout');
 
             if (!isBuyNow) {
@@ -204,7 +198,7 @@ export default function Checkout() {
         throw new Error('Checkout succeeded but the response did not include an order id.');
       }
 
-      clearCheckoutIdempotencyKey(activeCart.id);
+      clearCheckoutIdempotencyKey(idempotencyScope);
       localStorage.removeItem('buyNowCheckout');
 
       if (!isBuyNow) {
@@ -222,11 +216,20 @@ export default function Checkout() {
       console.error('Payment/order error:', err);
       if (isStaleCartError?.(err)) {
         const message = getStaleCartMessage?.(err) || 'Your previous order was already completed. A new cart has been started.';
-        if (activeCart?.id) {
-          clearCheckoutIdempotencyKey(activeCart.id);
+        if (idempotencyScope) {
+          clearCheckoutIdempotencyKey(idempotencyScope);
         }
         await resetCartLifecycle?.('checkout-stale-cart-conflict');
         alert(message);
+        return;
+      }
+      if (err.response?.status === 409) {
+        alert('Checkout already in progress. Please refresh your order history or start again.');
+        return;
+      }
+
+      if (err.response?.status >= 500) {
+        alert('Checkout failed. Please try again later.');
         return;
       }
 
