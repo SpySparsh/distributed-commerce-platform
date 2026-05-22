@@ -16,7 +16,7 @@ This is not a toy storefront. The repository focuses on the engineering foundati
 | Async jobs | BullMQ |
 | Search | Meilisearch |
 | Auth | JWT access tokens, rotating refresh tokens, HTTP-only cookies, RBAC |
-| Payments | Stripe/Razorpay-ready provider abstraction, signed webhooks |
+| Payments | Stripe Checkout, signed Stripe webhooks, COD admin payment capture |
 | Observability | Structured logs, request/correlation IDs, Sentry-ready error tracking |
 | Testing | Vitest, Supertest |
 | Infrastructure | Docker, Docker Compose, GitHub Actions, GHCR |
@@ -62,7 +62,7 @@ flowchart LR
   Worker --> Redis
   Worker --> Search
 
-  Payments["Stripe/Razorpay"] --> API
+  Payments["Stripe Checkout"] --> API
   API --> Payments
 ```
 
@@ -137,7 +137,7 @@ Detailed docs: [CART_ARCHITECTURE.md](./CART_ARCHITECTURE.md), [INVENTORY_RESERV
 
 ### Orders and Payments
 
-Orders are managed through a controlled state machine. The platform does not expose uncontrolled status updates.
+Orders and payments are tracked separately. Payment state drives revenue; order state drives fulfillment. The platform does not trust frontend success redirects for online payments.
 
 ```mermaid
 stateDiagram-v2
@@ -146,12 +146,17 @@ stateDiagram-v2
   pending --> cancelled
   confirmed --> paid
   confirmed --> cancelled
-  paid --> fulfilled
+  pending --> paid
+  paid --> delivered
   paid --> refunded
-  fulfilled --> refunded
+  delivered --> refunded
 ```
 
-Payments are provider-confirmed, not frontend-confirmed. Signed webhooks update local payment state, and order/payment consistency is handled through transactional state transitions and reconciliation-ready records.
+Stripe Checkout is the sole online payment provider. Cards, UPI, and wallet availability are controlled by Stripe account/payment-method support. Signed Stripe webhooks update local payment state, mark successful Stripe orders paid, consume inventory reservations, and trigger payment-success email workflows.
+
+COD orders are created as pending and become paid only when an admin uses Mark Paid. Admins can also mark paid orders delivered, which records delivery time and triggers delivery confirmation email. Revenue metrics count paid payments only, not pending, failed, or cancelled orders.
+
+Buy Now is isolated from the cart lifecycle. It creates a standalone checkout session and must not mutate the active cart.
 
 Detailed docs: [ORDER_ARCHITECTURE.md](./ORDER_ARCHITECTURE.md), [PAYMENT_ARCHITECTURE.md](./PAYMENT_ARCHITECTURE.md)
 
@@ -202,7 +207,9 @@ flowchart LR
 
 Async workloads include:
 
-- email sending
+- order confirmation emails
+- payment success emails
+- delivery confirmation emails
 - invoice generation
 - analytics
 - payment retries
@@ -239,7 +246,7 @@ The PostgreSQL schema is tenant-scoped and normalized around ecommerce boundarie
 - carts and cart items
 - inventory items and reservations
 - orders and order events
-- payments and webhook inbox
+- payments, provider references, paid timestamps, and webhook inbox
 - audit logs
 - domain event log
 
@@ -331,7 +338,7 @@ corepack enable
 corepack pnpm install
 ```
 
-Create `.env` from `.env.example`, then replace the Supabase database values:
+Create `.env` from `.env.example`, then replace the Supabase database values and Stripe values:
 
 ```bash
 DATABASE_URL="postgresql://prisma.<project-ref>:<password>@<region>.pooler.supabase.com:5432/postgres?schema=public&sslmode=require"
@@ -339,6 +346,22 @@ DIRECT_URL="postgresql://postgres.<project-ref>:<password>@<region>.pooler.supab
 ```
 
 `DATABASE_URL` is used by API, worker, seed, and Prisma Client runtime. `DIRECT_URL` is used by Prisma CLI migration commands. Keep `DIRECT_URL` on a direct or session-safe Supabase connection so migrations do not run through the transaction pooler.
+
+Stripe local testing requires:
+
+```bash
+STRIPE_SECRET_KEY="sk_test_xxx"
+STRIPE_WEBHOOK_SECRET="whsec_xxx"
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY="pk_test_xxx"
+```
+
+Forward Stripe webhooks locally:
+
+```bash
+stripe listen --forward-to localhost:4000/payments/stripe/webhook
+```
+
+Copy the generated `whsec_...` value into `STRIPE_WEBHOOK_SECRET`. Without this webhook forwarding, Stripe Checkout can succeed while local orders remain pending.
 
 Validate local environment:
 
@@ -530,6 +553,12 @@ Web is unhealthy:
 - Rebuild with `corepack pnpm docker:up`.
 - Confirm `NEXT_PUBLIC_API_URL=http://localhost:4000`.
 - Check that API is healthy before debugging the frontend.
+
+Stripe payment succeeds but order remains pending:
+
+- Confirm Stripe CLI is forwarding to `localhost:4000/payments/stripe/webhook`.
+- Verify `STRIPE_WEBHOOK_SECRET` matches the latest `stripe listen` secret.
+- Check API logs for `WEBHOOK RECEIVED`, `PAYMENT UPDATED`, `ORDER UPDATED`, and `REVENUE UPDATED`.
 
 ## Engineering Tradeoffs
 
