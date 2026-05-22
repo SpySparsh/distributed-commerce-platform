@@ -13,6 +13,7 @@ export interface CartDto {
   readonly userId?: string;
   readonly guestId?: string;
   readonly deviceId?: string;
+  readonly status?: "active" | "converted" | "abandoned" | "expired";
   readonly version: number;
   readonly items: readonly CartItemDto[];
   readonly updatedAt: string;

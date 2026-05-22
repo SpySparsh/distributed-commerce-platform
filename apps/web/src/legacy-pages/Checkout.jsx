@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from '../api/axios';
 
 export default function Checkout() {
-  const { cart, cartId, resetCart, createFreshCart } = useCart();
+  const { cart, resetCart, createFreshCart, getOrCreateActiveCart } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
   const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
@@ -24,12 +24,15 @@ export default function Checkout() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!cartId) return alert('Cart is not ready yet');
-    if (!cart.length) return alert('No items to order');
     if (!user?.email) return alert('Please login before checkout');
 
     try {
       setLoading(true);
+      const activeCart = await getOrCreateActiveCart();
+
+      if (!activeCart?.id) return alert('Cart is not ready yet');
+      if (!activeCart.items?.length) return alert('No items to order');
+
       const provider =
         paymentMethod === 'UPI'
           ? 'razorpay'
@@ -37,12 +40,12 @@ export default function Checkout() {
             ? 'stripe'
             : 'cod';
       const { data: checkout } = await axios.post('/checkout/start', {
-        cartId,
+        cartId: activeCart.id,
         email: user.email,
         shippingAddress: shipping,
         billingAddress: shipping,
         provider,
-        idempotencyKey: `${cartId}-${Date.now()}`
+        idempotencyKey: `${activeCart.id}-${Date.now()}`
       });
 
       if (provider === 'razorpay' && checkout.payment?.providerOrderId && window.Razorpay) {

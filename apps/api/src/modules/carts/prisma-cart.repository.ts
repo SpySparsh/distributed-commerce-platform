@@ -17,6 +17,7 @@ interface CartRow {
   readonly userId: string | null;
   readonly guestId: string | null;
   readonly deviceId: string | null;
+  readonly status: "active" | "converted" | "abandoned" | "expired";
   readonly version: number;
   readonly updatedAt: Date;
   readonly expiresAt: Date | null;
@@ -46,6 +47,7 @@ const toCartDto = (cart: CartRow): CartDto => ({
   ...(cart.userId === null ? {} : { userId: cart.userId }),
   ...(cart.guestId === null ? {} : { guestId: cart.guestId }),
   ...(cart.deviceId === null ? {} : { deviceId: cart.deviceId }),
+  status: cart.status,
   version: cart.version,
   items: cart.items.map(toItemDto),
   updatedAt: cart.updatedAt.toISOString(),

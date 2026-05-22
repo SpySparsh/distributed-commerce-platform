@@ -6,6 +6,22 @@ const CartContext = createContext();
 
 const cartStorageKey = 'activeCartId';
 
+const normalizeCart = (responseData) => responseData?.cart ?? responseData;
+
+const isActiveCart = (nextCart) => nextCart?.status === 'active';
+
+const isStaleCartError = (err) => {
+  const status = err.response?.status;
+  const code = err.response?.data?.error?.code;
+
+  return (
+    status === 404 ||
+    code === 'CART_NOT_FOUND' ||
+    code === 'CHECKOUT_CART_NOT_FOUND' ||
+    code === 'CHECKOUT_CART_ALREADY_CHECKED_OUT'
+  );
+};
+
 const toLegacyCartItems = (cart) =>
   (cart?.items ?? []).map((item) => ({
     _id: item.variantId,
@@ -31,7 +47,27 @@ export const CartProvider = ({ children }) => {
     localStorage.setItem(cartStorageKey, nextCart.id);
   };
 
-  const getOrCreateCart = async () => {
+  const clearStoredCart = () => {
+    setCart([]);
+    setCartId(null);
+    localStorage.removeItem(cartStorageKey);
+  };
+
+  const createFreshCart = async (reason = 'manual') => {
+    if (!isAuthenticated) {
+      throw new Error('Please login to use your cart.');
+    }
+
+    console.info('[cart] creating fresh active cart', { reason, previousCartId: localStorage.getItem(cartStorageKey) });
+    clearStoredCart();
+    const res = await axios.post('/carts');
+    const nextCart = normalizeCart(res.data);
+    console.info('[cart] fresh cart created', { cartId: nextCart.id, status: nextCart.status });
+    persistCart(nextCart);
+    return nextCart;
+  };
+
+  const getOrCreateActiveCart = async () => {
     if (!isAuthenticated) {
       throw new Error('Please login to use your cart.');
     }
@@ -41,40 +77,49 @@ export const CartProvider = ({ children }) => {
     if (storedCartId) {
       try {
         const res = await axios.get(`/carts/${storedCartId}`);
-        persistCart(res.data);
-        return res.data;
-      } catch {
-        localStorage.removeItem(cartStorageKey);
+        const existingCart = normalizeCart(res.data);
+        console.info('[cart] loaded stored cart', { cartId: storedCartId, status: existingCart.status });
+
+        if (isActiveCart(existingCart)) {
+          persistCart(existingCart);
+          return existingCart;
+        }
+
+        console.warn('[cart] replacing stale non-active cart', {
+          cartId: storedCartId,
+          status: existingCart.status
+        });
+      } catch (err) {
+        console.warn('[cart] replacing missing/unusable stored cart', {
+          cartId: storedCartId,
+          status: err.response?.status,
+          code: err.response?.data?.error?.code
+        });
       }
     }
 
-    const res = await axios.post('/carts');
-    persistCart(res.data.cart ?? res.data);
-    return res.data.cart ?? res.data;
-  };
-
-  const createFreshCart = async () => {
-    if (!isAuthenticated) {
-      throw new Error('Please login to use your cart.');
-    }
-
-    localStorage.removeItem(cartStorageKey);
-    const res = await axios.post('/carts');
-    const nextCart = res.data.cart ?? res.data;
-    persistCart(nextCart);
-    return nextCart;
+    return await createFreshCart('missing-or-stale-cart');
   };
 
   const refreshCartById = async (nextCartId) => {
     const res = await axios.get(`/carts/${nextCartId}`);
-    const nextCart = res.data.cart ?? res.data;
+    const nextCart = normalizeCart(res.data);
+
+    if (!isActiveCart(nextCart)) {
+      console.warn('[cart] refreshed cart is not active; replacing', {
+        cartId: nextCart.id,
+        status: nextCart.status
+      });
+      return await createFreshCart('refresh-returned-non-active-cart');
+    }
+
     persistCart(nextCart);
     return nextCart;
   };
 
   const fetchCart = async () => {
     try {
-      await getOrCreateCart();
+      await getOrCreateActiveCart();
     } catch (err) {
       if (err.response?.status !== 401) {
         console.error('Fetch cart error:', err.response?.data || err.message);
@@ -119,17 +164,44 @@ export const CartProvider = ({ children }) => {
     }
 
     try {
-      const activeCart = await getOrCreateCart();
       const cartProduct = await resolveProductForCart(product);
-      const res = await axios.post(`/carts/${activeCart.id}/items`, {
-        productId: cartProduct._id,
-        variantId: cartProduct.variantId,
-        quantity: qty,
-        unitPrice: String(cartProduct.price),
-        currency: cartProduct.currency || 'USD'
-      });
+      const addItemToBackend = async (activeCart) => {
+        console.info('[cart] add-to-cart request', {
+          cartId: activeCart.id,
+          cartStatus: activeCart.status,
+          productId: cartProduct._id,
+          variantId: cartProduct.variantId,
+          quantity: qty
+        });
 
-      const mutatedCart = res.data.cart ?? res.data;
+        return await axios.post(`/carts/${activeCart.id}/items`, {
+          productId: cartProduct._id,
+          variantId: cartProduct.variantId,
+          quantity: qty,
+          unitPrice: String(cartProduct.price),
+          currency: cartProduct.currency || 'USD'
+        });
+      };
+
+      const activeCart = await getOrCreateActiveCart();
+      let res;
+
+      try {
+        res = await addItemToBackend(activeCart);
+      } catch (err) {
+        if (!isStaleCartError(err)) {
+          throw err;
+        }
+
+        console.warn('[cart] add-to-cart hit stale cart; creating replacement and retrying', {
+          cartId: activeCart.id,
+          status: activeCart.status,
+          code: err.response?.data?.error?.code
+        });
+        res = await addItemToBackend(await createFreshCart('add-to-cart-stale-cart'));
+      }
+
+      const mutatedCart = normalizeCart(res.data);
       return await refreshCartById(mutatedCart.id);
     } catch (err) {
       console.error('Add to cart error:', err.response?.data || err.message);
@@ -142,14 +214,14 @@ export const CartProvider = ({ children }) => {
 
   const removeFromCart = async (variantId) => {
     try {
-      const activeCartId = cartId || localStorage.getItem(cartStorageKey);
+      const activeCart = await getOrCreateActiveCart();
 
-      if (!activeCartId) {
+      if (!activeCart.id) {
         return;
       }
 
-      const res = await axios.delete(`/carts/${activeCartId}/items/${variantId}`);
-      const mutatedCart = res.data.cart ?? res.data;
+      const res = await axios.delete(`/carts/${activeCart.id}/items/${variantId}`);
+      const mutatedCart = normalizeCart(res.data);
       return await refreshCartById(mutatedCart.id);
     } catch (err) {
       console.error('Remove error:', err.response?.data || err.message);
@@ -158,14 +230,21 @@ export const CartProvider = ({ children }) => {
 
   const updateQty = async (variantId, qty) => {
     try {
-      const activeCartId = cartId || localStorage.getItem(cartStorageKey);
-      const currentItem = cart.find((item) => item.variantId === variantId);
+      const activeCart = await getOrCreateActiveCart();
+      const currentItem = toLegacyCartItems(activeCart).find((item) => item.variantId === variantId);
 
-      if (!activeCartId || !currentItem) {
+      if (!activeCart.id || !currentItem) {
         return;
       }
 
-      const res = await axios.put(`/carts/${activeCartId}/items`, {
+      console.info('[cart] set cart item quantity', {
+        cartId: activeCart.id,
+        cartStatus: activeCart.status,
+        variantId,
+        quantity: qty
+      });
+
+      const res = await axios.put(`/carts/${activeCart.id}/items`, {
         productId: currentItem.productId,
         variantId,
         quantity: qty,
@@ -173,7 +252,7 @@ export const CartProvider = ({ children }) => {
         currency: currentItem.currency || 'USD'
       });
 
-      const mutatedCart = res.data.cart ?? res.data;
+      const mutatedCart = normalizeCart(res.data);
       return await refreshCartById(mutatedCart.id);
     } catch (err) {
       console.error('Update qty error:', err.response?.data || err.message);
@@ -187,9 +266,7 @@ export const CartProvider = ({ children }) => {
   };
 
   const resetCart = () => {
-    setCart([]);
-    setCartId(null);
-    localStorage.removeItem(cartStorageKey);
+    clearStoredCart();
   };
 
   useEffect(() => {
@@ -198,9 +275,7 @@ export const CartProvider = ({ children }) => {
     }
 
     if (!isAuthenticated) {
-      setCart([]);
-      setCartId(null);
-      localStorage.removeItem(cartStorageKey);
+      clearStoredCart();
       return;
     }
 
@@ -209,7 +284,7 @@ export const CartProvider = ({ children }) => {
 
   return (
     <CartContext.Provider
-      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart, resetCart, createFreshCart }}
+      value={{ cart, cartId, addToCart, removeFromCart, updateQty, clearCart, resetCart, createFreshCart, getOrCreateActiveCart }}
     >
       {children}
     </CartContext.Provider>

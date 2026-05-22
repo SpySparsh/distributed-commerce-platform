@@ -43,6 +43,8 @@ const isOwnedBy = (cart: CartDto, owner?: CartOwner): boolean => {
   return false;
 };
 
+const isActiveCart = (cart: CartDto): boolean => cart.status === "active";
+
 export interface CartService {
   getOrCreateCart(identity: CartIdentityQuery): Promise<CartDto>;
   getCart(tenantId: string, cartId: string, owner?: CartOwner): Promise<CartDto | undefined>;
@@ -88,7 +90,12 @@ export const createCartService = (
 
     if (cached !== undefined) {
       const cart = toCartDto(cached);
-      return isOwnedBy(cart, owner) ? cart : undefined;
+      if (!isOwnedBy(cart, owner) || !isActiveCart(cart)) {
+        await deleteCart(redis, tenantId, cartId);
+        return undefined;
+      }
+
+      return cart;
     }
 
     const persisted = await repository.findCart(tenantId, cartId, owner);
