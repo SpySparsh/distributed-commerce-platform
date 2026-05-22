@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -55,6 +55,42 @@ export default function Checkout() {
 
   const [paymentMethod, setPaymentMethod] = useState('COD');
   const [loading, setLoading] = useState(false);
+  const [isBuyNow, setIsBuyNow] = useState(false);
+
+  useEffect(() => {
+    setIsBuyNow(new URLSearchParams(window.location.search).get('mode') === 'buy-now');
+  }, []);
+
+  const getBuyNowPayload = () => {
+    const stored = localStorage.getItem('buyNowCheckout');
+
+    if (!stored) {
+      throw new Error('Buy Now checkout data is missing. Please start again from the product page.');
+    }
+
+    const parsed = JSON.parse(stored);
+
+    if (!parsed?.product?.variantId || !parsed?.product?._id || !parsed?.quantity) {
+      throw new Error('Buy Now checkout data is invalid. Please start again from the product page.');
+    }
+
+    return parsed;
+  };
+
+  const createBuyNowCheckoutCart = async () => {
+    const { product, quantity } = getBuyNowPayload();
+    const cartResponse = await axios.post('/carts');
+    const temporaryCart = cartResponse.data.cart ?? cartResponse.data;
+    const itemResponse = await axios.post(`/carts/${temporaryCart.id}/items`, {
+      productId: product._id,
+      variantId: product.variantId,
+      quantity,
+      unitPrice: String(product.price),
+      currency: product.currency || 'USD'
+    });
+
+    return itemResponse.data.cart ?? itemResponse.data;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -69,7 +105,7 @@ export default function Checkout() {
 
     try {
       setLoading(true);
-      activeCart = await getOrCreateActiveCart();
+      activeCart = isBuyNow ? await createBuyNowCheckoutCart() : await getOrCreateActiveCart();
 
       if (!activeCart?.id) return alert('Cart is not ready yet');
       if (!activeCart.items?.length) return alert('No items to order');
@@ -105,7 +141,15 @@ export default function Checkout() {
         ({ data: checkout } = await axios.post('/checkout/start', checkoutPayload));
       }
 
-      if (provider === 'razorpay' && checkout.payment?.providerOrderId && window.Razorpay) {
+      if (provider === 'razorpay') {
+        if (!checkout.payment?.providerOrderId) {
+          throw new Error('Razorpay order was not created. Payment cannot continue.');
+        }
+
+        if (!window.Razorpay) {
+          throw new Error('Razorpay checkout script is not loaded.');
+        }
+
         const options = {
           key: razorpayKey || checkout.payment.publishableKey,
           amount: Number(checkout.payment.payment.amount) * 100,
@@ -118,18 +162,34 @@ export default function Checkout() {
             contact: shipping.phone
           },
           theme: { color: '#3399cc' },
-          handler: async () => {
+          handler: async (response) => {
+            await axios.post('/payments/verify', {
+              provider: 'razorpay',
+              paymentId: checkout.payment.payment.id,
+              providerOrderId: checkout.payment.providerOrderId,
+              providerPaymentId: response.razorpay_payment_id,
+              signature: response.razorpay_signature
+            });
             clearCheckoutIdempotencyKey(activeCart.id);
-            localStorage.removeItem('buyNow');
-            resetCart();
-            try {
-              await createFreshCart('razorpay-payment-returned');
-            } catch (freshCartError) {
-              console.warn('Payment returned, but a fresh cart could not be created immediately:', freshCartError);
+            localStorage.removeItem('buyNowCheckout');
+
+            if (!isBuyNow) {
+              resetCart();
+              try {
+                await createFreshCart('razorpay-payment-returned');
+              } catch (freshCartError) {
+                console.warn('Payment returned, but a fresh cart could not be created immediately:', freshCartError);
+              }
             }
+
             const orderId = checkout.order?.id || checkout.order?._id || checkout.id || checkout._id;
             if (orderId) {
               navigate(`/order/${orderId}`);
+            }
+          },
+          modal: {
+            ondismiss: () => {
+              console.warn('Razorpay checkout was dismissed; cart/order state was left unchanged for retry.');
             }
           }
         };
@@ -145,13 +205,17 @@ export default function Checkout() {
       }
 
       clearCheckoutIdempotencyKey(activeCart.id);
-      localStorage.removeItem('buyNow');
-      resetCart();
-      try {
-        await createFreshCart();
-      } catch (freshCartError) {
-        console.warn('Order placed, but a fresh cart could not be created immediately:', freshCartError);
+      localStorage.removeItem('buyNowCheckout');
+
+      if (!isBuyNow) {
+        resetCart();
+        try {
+          await createFreshCart();
+        } catch (freshCartError) {
+          console.warn('Order placed, but a fresh cart could not be created immediately:', freshCartError);
+        }
       }
+
       navigate(`/order/${orderId}`);
 
     } catch (err) {
@@ -178,7 +242,16 @@ export default function Checkout() {
     setShipping({ ...shipping, [e.target.name]: e.target.value });
   };
 
-  const displayTotal = cart.reduce((acc, item) => acc + item.price * item.qty, 0);
+  const displayTotal = isBuyNow
+    ? (() => {
+        try {
+          const { product, quantity } = getBuyNowPayload();
+          return Number(product.price) * Number(quantity);
+        } catch {
+          return 0;
+        }
+      })()
+    : cart.reduce((acc, item) => acc + item.price * item.qty, 0);
 
   return (
     <div className="p-6 max-w-xl mx-auto">

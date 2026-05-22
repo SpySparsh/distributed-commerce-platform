@@ -390,21 +390,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
     result: { readonly cart: CartDto; readonly order: OrderDto; readonly payment: PaymentDto },
     provider: PaymentProvider
   ): Promise<CheckoutResultDto> {
-    if (provider === "cod" || provider === "manual") {
-      return this.createProviderIntent(result, provider);
-    }
-
-    try {
-      return await this.createProviderIntent(result, provider);
-    } catch {
-      return {
-        cart: result.cart,
-        order: result.order,
-        payment: {
-          payment: result.payment
-        }
-      };
-    }
+    return this.createProviderIntent(result, provider);
   }
 
   private async updateProviderPayment(payment: PaymentDto, providerPaymentId: string): Promise<PaymentDto> {

@@ -18,9 +18,11 @@ export default function ProductDetail() {
 
     try {
       setBuyingNow(true);
-      await addToCart(product, qty, { silent: true });
-      localStorage.removeItem('buyNow');
-      navigate('/checkout');
+      localStorage.setItem('buyNowCheckout', JSON.stringify({
+        product,
+        quantity: qty
+      }));
+      navigate('/checkout?mode=buy-now');
     } catch (err) {
       alert(err.response?.data?.error?.message || err.message || 'Unable to start checkout.');
     } finally {

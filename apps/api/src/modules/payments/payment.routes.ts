@@ -9,6 +9,7 @@ import {
   paymentParamsSchema,
   paymentRetryBodySchema,
   paymentTenantQuerySchema,
+  verifyPaymentBodySchema,
   webhookParamsSchema
 } from "./payment.schemas.js";
 import { createPaymentService } from "./payment.service.js";
@@ -107,6 +108,31 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
         });
         return;
       }
+
+      return {
+        ok: true,
+        data: {
+          payment
+        }
+      };
+    }
+  );
+
+  app.post(
+    "/verify",
+    {
+      preHandler: [
+        requirePermission(permissions.paymentsWrite),
+        withRateLimit({ keyPrefix: "payments:verify", maxRequests: 60 }),
+        validateRequest({ body: verifyPaymentBodySchema })
+      ]
+    },
+    async (request) => {
+      const body = verifyPaymentBodySchema.parse(request.body);
+      const payment = await service.verifyPayment({
+        ...body,
+        tenantId: getAuthenticatedTenantId(request)
+      });
 
       return {
         ok: true,

@@ -7,7 +7,8 @@ import type {
   PaymentRepository,
   PaymentWebhookEventDto,
   RecordWebhookInput,
-  UpdateProviderPaymentInput
+  UpdateProviderPaymentInput,
+  VerifyProviderPaymentInput
 } from "./payment.repository.js";
 import type {
   PaymentDto,
@@ -62,6 +63,12 @@ interface PaymentTransactionClient {
   };
   readonly domainEventLog: {
     create(args: unknown): Promise<unknown>;
+  };
+  readonly order: {
+    findFirst(args: unknown): Promise<{ readonly cartId: string | null } | null>;
+  };
+  readonly cart: {
+    updateMany(args: unknown): Promise<{ readonly count: number }>;
   };
 }
 
@@ -205,6 +212,64 @@ export class PrismaPaymentRepository implements PaymentRepository {
     }
 
     return toPaymentDto(payment);
+  }
+
+  async verifyProviderPayment(input: VerifyProviderPaymentInput): Promise<PaymentDto> {
+    return this.prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findFirst({
+        where: {
+          id: input.paymentId,
+          tenantId: input.tenantId,
+          provider: input.provider,
+          providerPaymentId: input.providerOrderId,
+          deletedAt: null
+        }
+      });
+
+      if (payment === null) {
+        throw paymentNotFoundError();
+      }
+
+      const now = new Date();
+      const updated = await tx.payment.update({
+        where: {
+          id: payment.id
+        },
+        data: {
+          status: "captured",
+          providerTransactionId: input.providerPaymentId,
+          capturedAt: now
+        }
+      });
+
+      const order = await tx.order.findFirst({
+        where: {
+          id: payment.orderId,
+          tenantId: input.tenantId,
+          deletedAt: null
+        },
+        select: {
+          cartId: true
+        }
+      });
+
+      if (order?.cartId !== null && order?.cartId !== undefined) {
+        await tx.cart.updateMany({
+          where: {
+            id: order.cartId,
+            tenantId: input.tenantId,
+            status: "active",
+            deletedAt: null
+          },
+          data: {
+            status: "converted",
+            lastSyncedAt: now
+          }
+        });
+      }
+
+      return toPaymentDto(updated);
+    });
   }
 
   async recordWebhook(input: RecordWebhookInput): Promise<PaymentWebhookEventDto> {
