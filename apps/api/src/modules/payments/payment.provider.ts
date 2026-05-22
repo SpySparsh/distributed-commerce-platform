@@ -96,6 +96,16 @@ class StripePaymentProviderClient implements PaymentProviderClient {
 
       payload = getObjectRecord(await response.json());
 
+      console.info("STRIPE PAYMENT INTENT RESPONSE", {
+        paymentId: input.paymentId,
+        orderId: input.orderId,
+        ok: response.ok,
+        status: response.status,
+        providerOrderId: getString(payload, "id"),
+        hasClientSecret: getString(payload, "client_secret") !== undefined,
+        errorMessage: getString(getObjectRecord(payload["error"]), "message")
+      });
+
       if (!response.ok) {
         throw paymentProviderRequestFailedError(
           "Stripe",
@@ -108,6 +118,9 @@ class StripePaymentProviderClient implements PaymentProviderClient {
       }
 
       console.error("PAYMENT PROVIDER ERROR:", error);
+      if (error instanceof Error && error.stack !== undefined) {
+        console.error(error.stack);
+      }
       throw paymentProviderRequestFailedError("Stripe", toErrorMessage(error));
     }
 
@@ -213,6 +226,15 @@ class RazorpayPaymentProviderClient implements PaymentProviderClient {
       });
 
       payload = getObjectRecord(await response.json());
+
+      console.info("RAZORPAY ORDER RESPONSE", {
+        paymentId: input.paymentId,
+        orderId: input.orderId,
+        ok: response.ok,
+        status: response.status,
+        providerOrderId: getString(payload, "id"),
+        errorDescription: getString(getObjectRecord(payload["error"]), "description")
+      });
 
       if (!response.ok) {
         throw paymentProviderRequestFailedError(

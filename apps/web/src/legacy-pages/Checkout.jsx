@@ -31,6 +31,12 @@ const clearCheckoutIdempotencyKey = (cartId) => {
   localStorage.removeItem(checkoutIdempotencyStorageKey(cartId));
 };
 
+const getApiErrorMessage = (err) =>
+  err.response?.data?.error?.message ||
+  err.response?.data?.message ||
+  err.message ||
+  'Order/payment failed';
+
 export default function Checkout() {
   const {
     cart,
@@ -153,7 +159,7 @@ export default function Checkout() {
         const options = {
           key: razorpayKey || checkout.payment.publishableKey,
           amount: Number(checkout.payment.payment.amount) * 100,
-          currency: checkout.payment.payment.currency,
+          currency: 'INR',
           name: 'MyShop',
           description: 'Order Payment',
           order_id: checkout.payment.providerOrderId,
@@ -228,6 +234,10 @@ export default function Checkout() {
 
     } catch (err) {
       console.error('Payment/order error:', err);
+      if (idempotencyScope && [500, 502, 503].includes(Number(err.response?.status))) {
+        clearCheckoutIdempotencyKey(idempotencyScope);
+      }
+
       if (isStaleCartError?.(err)) {
         const message = getStaleCartMessage?.(err) || 'Your previous order was already completed. A new cart has been started.';
         if (idempotencyScope) {
@@ -238,16 +248,16 @@ export default function Checkout() {
         return;
       }
       if (err.response?.status === 409) {
-        alert('Checkout already in progress. Please refresh your order history or start again.');
+        alert(getApiErrorMessage(err));
         return;
       }
 
       if (err.response?.status >= 500) {
-        alert('Checkout failed. Please try again later.');
+        alert(getApiErrorMessage(err));
         return;
       }
 
-      alert(err.response?.data?.error?.message || err.response?.data?.message || 'Order/payment failed');
+      alert(getApiErrorMessage(err));
     } finally {
       if (releaseCheckoutLock) {
         endCheckoutLock?.();

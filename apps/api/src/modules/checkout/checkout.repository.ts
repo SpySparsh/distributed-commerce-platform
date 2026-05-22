@@ -115,6 +115,7 @@ const orderInclude = {
 } satisfies Prisma.OrderInclude;
 
 const reservationTtlMs = 15 * 60 * 1000;
+const stalePaymentMs = 10 * 60 * 1000;
 
 const toRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
@@ -142,6 +143,18 @@ const sumReservationQuantity = (reservations: readonly { readonly quantity: numb
 
 const isImmediateSettlementProvider = (provider: PaymentProvider): boolean =>
   provider === "cod" || provider === "manual";
+
+const isRetryablePaymentStatus = (status: PaymentStatus): boolean =>
+  status === "failed" || status === "cancelled";
+
+const isStalePayment = (payment: Pick<PaymentRow, "status" | "createdAt">): boolean =>
+  payment.status === "pending" && Date.now() - payment.createdAt.getTime() > stalePaymentMs;
+
+const toErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown checkout provider error";
+
+const toErrorStack = (error: unknown): string | undefined =>
+  error instanceof Error ? error.stack : undefined;
 
 const toOrderDto = (row: OrderRow): OrderDto => ({
   id: row.id,
@@ -225,7 +238,10 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
     const existing = await this.findExistingCheckout(input.tenantId, input.idempotencyKey);
 
     if (existing !== undefined) {
-      return this.createProviderIntentSafely(existing, input.provider ?? existing.payment.provider);
+      return this.createProviderIntentSafely(existing, input.provider ?? existing.payment.provider, {
+        mode: "cart",
+        requestId: actor.requestId
+      });
     }
 
     if (cart === undefined) {
@@ -269,14 +285,20 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       }
     );
 
-    return this.createProviderIntentSafely(result, input.provider ?? result.payment.provider);
+    return this.createProviderIntentSafely(result, input.provider ?? result.payment.provider, {
+      mode: "cart",
+      requestId: actor.requestId
+    });
   }
 
   async startBuyNowCheckout(input: StartBuyNowCheckoutBody, actor: OrderActor): Promise<CheckoutResultDto> {
     const existing = await this.findExistingCheckout(input.tenantId, input.idempotencyKey);
 
     if (existing !== undefined) {
-      return this.createProviderIntentSafely(existing, input.provider ?? existing.payment.provider);
+      return this.createProviderIntentSafely(existing, input.provider ?? existing.payment.provider, {
+        mode: "buy_now",
+        requestId: actor.requestId
+      });
     }
 
     const result = await this.prisma.$transaction(
@@ -410,7 +432,10 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       }
     );
 
-    return this.createProviderIntentSafely(result, input.provider ?? result.payment.provider);
+    return this.createProviderIntentSafely(result, input.provider ?? result.payment.provider, {
+      mode: "buy_now",
+      requestId: actor.requestId
+    });
   }
 
   private async findExistingCheckout(
@@ -426,6 +451,11 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
     });
 
     if (payment === null) {
+      return undefined;
+    }
+
+    if (isRetryablePaymentStatus(payment.status) || isStalePayment(payment)) {
+      await this.archiveFailedCheckoutAttempt(payment, isStalePayment(payment) ? "stale_checkout_retry" : "failed_checkout_retry");
       return undefined;
     }
 
@@ -507,6 +537,41 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       };
     }
 
+    if (result.payment.providerPaymentId !== undefined) {
+      console.info("CHECKOUT PROVIDER REUSE", {
+        provider,
+        paymentId: result.payment.id,
+        orderId: result.payment.orderId,
+        providerOrderId: result.payment.providerPaymentId
+      });
+
+      return {
+        ...(result.cart === undefined ? {} : { cart: result.cart }),
+        order: result.order,
+        payment: {
+          payment: result.payment,
+          providerOrderId: result.payment.providerPaymentId,
+          ...(provider === "razorpay" && this.env.RAZORPAY_KEY_ID !== undefined
+            ? { publishableKey: this.env.RAZORPAY_KEY_ID }
+            : {})
+        }
+      };
+    }
+
+    console.info("CHECKOUT PROVIDER INIT", {
+      provider,
+      paymentId: result.payment.id,
+      orderId: result.payment.orderId,
+      amount: result.payment.amount,
+      currency: result.payment.currency,
+      keyIdExists: provider === "razorpay"
+        ? this.env.RAZORPAY_KEY_ID !== undefined
+        : this.env.STRIPE_SECRET_KEY !== undefined,
+      secretExists: provider === "razorpay"
+        ? this.env.RAZORPAY_KEY_SECRET !== undefined
+        : this.env.STRIPE_SECRET_KEY !== undefined
+    });
+
     const providerClient = createPaymentProviderClient(provider, this.env);
     const providerResult = await providerClient.createPayment({
       tenantId: result.payment.tenantId,
@@ -515,6 +580,15 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       currency: result.payment.currency,
       idempotencyKey: result.payment.idempotencyKey,
       paymentId: result.payment.id
+    });
+
+    console.info("CHECKOUT PROVIDER RESPONSE", {
+      provider,
+      paymentId: result.payment.id,
+      orderId: result.payment.orderId,
+      providerOrderId: providerResult.providerOrderId,
+      hasClientSecret: providerResult.providerClientSecret !== undefined,
+      hasPublishableKey: providerResult.publishableKey !== undefined
     });
 
     const updatedPayment =
@@ -540,9 +614,144 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
 
   private async createProviderIntentSafely(
     result: CheckoutPersistenceResult,
-    provider: PaymentProvider
+    provider: PaymentProvider,
+    context: {
+      readonly mode: "cart" | "buy_now";
+      readonly requestId?: string | undefined;
+    }
   ): Promise<CheckoutResultDto> {
-    return this.createProviderIntent(result, provider);
+    try {
+      return await this.createProviderIntent(result, provider);
+    } catch (error) {
+      if (!isImmediateSettlementProvider(provider)) {
+        console.error("CHECKOUT PROVIDER INIT FAILED", {
+          mode: context.mode,
+          requestId: context.requestId,
+          provider,
+          paymentId: result.payment.id,
+          orderId: result.order.id,
+          amount: result.payment.amount,
+          currency: result.payment.currency,
+          providerOrderId: result.payment.providerPaymentId,
+          message: toErrorMessage(error),
+          stack: toErrorStack(error)
+        });
+        await this.cleanupFailedProviderInitialization(result, error);
+      }
+
+      throw error;
+    }
+  }
+
+  private async archiveFailedCheckoutAttempt(payment: PaymentRow, reason: string): Promise<void> {
+    const archivedKey = `${payment.idempotencyKey}:archived:${payment.id}`;
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        idempotencyKey: archivedKey,
+        status: payment.status === "pending" ? "failed" : payment.status,
+        failureCode: reason,
+        failureMessage: "Archived stale checkout attempt so a new checkout can be started",
+        failedAt: payment.failedAt ?? new Date(),
+        metadata: {
+          ...toRecord(payment.metadata),
+          archivedOriginalIdempotencyKey: payment.idempotencyKey,
+          archivedReason: reason,
+          archivedAt: new Date().toISOString()
+        }
+      }
+    });
+  }
+
+  private async cleanupFailedProviderInitialization(
+    result: CheckoutPersistenceResult,
+    error: unknown
+  ): Promise<void> {
+    const message = toErrorMessage(error);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: result.payment.id },
+        data: {
+          status: "failed",
+          failureCode: "PROVIDER_INIT_FAILED",
+          failureMessage: message,
+          failedAt: new Date(),
+          idempotencyKey: `${result.payment.idempotencyKey}:failed:${result.payment.id}`,
+          metadata: {
+            ...result.payment.metadata,
+            providerInitFailedAt: new Date().toISOString()
+          }
+        }
+      });
+
+      await tx.order.update({
+        where: { id: result.order.id },
+        data: {
+          status: "cancelled",
+          version: {
+            increment: 1
+          }
+        }
+      });
+
+      await tx.orderEvent.create({
+        data: {
+          tenantId: result.order.tenantId,
+          orderId: result.order.id,
+          type: "cancelled",
+          beforeStatus: result.order.status,
+          afterStatus: "cancelled",
+          reason: "Payment provider initialization failed",
+          metadata: {
+            paymentId: result.payment.id,
+            failureMessage: message
+          }
+        }
+      });
+
+      const orderItemIds = result.order.items.map((item) => item.id);
+      const reservations = orderItemIds.length === 0
+        ? []
+        : await tx.inventoryReservation.findMany({
+            where: {
+              tenantId: result.order.tenantId,
+              orderItemId: {
+                in: orderItemIds
+              },
+              status: "active",
+              deletedAt: null
+            },
+            select: {
+              id: true,
+              inventoryItemId: true,
+              variantId: true,
+              quantity: true
+            }
+          });
+
+      for (const reservation of reservations) {
+        await tx.inventoryReservation.update({
+          where: { id: reservation.id },
+          data: {
+            status: "released",
+            releasedAt: new Date()
+          }
+        });
+
+        await tx.$executeRaw`
+          UPDATE "InventoryItem"
+          SET "reserved" = "reserved" - ${reservation.quantity},
+              "version" = "version" + 1,
+              "updatedAt" = NOW()
+          WHERE "id" = ${reservation.inventoryItemId}::uuid
+            AND "tenantId" = ${result.order.tenantId}::uuid
+            AND "variantId" = ${reservation.variantId}::uuid
+            AND "reserved" >= ${reservation.quantity}
+        `;
+      }
+    });
   }
 
   private async updateProviderPayment(payment: PaymentDto, providerPaymentId: string): Promise<PaymentDto> {
