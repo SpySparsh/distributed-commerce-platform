@@ -435,6 +435,10 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
     tenantId: string,
     items: readonly CartItemDto[]
   ): Promise<Map<string, ProductVariantSnapshot>> {
+    if (items.length === 0) {
+      return new Map<string, ProductVariantSnapshot>();
+    }
+
     const variants = await tx.productVariant.findMany({
       where: {
         tenantId,
@@ -817,6 +821,10 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       }
 
       if (itemReservations.some((reservation) => reservation.variantId !== orderItem.variantId)) {
+        throw checkoutInventoryUnavailableError();
+      }
+
+      if (itemReservations.length === 0) {
         throw checkoutInventoryUnavailableError();
       }
 

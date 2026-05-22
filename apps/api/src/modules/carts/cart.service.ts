@@ -22,13 +22,34 @@ const toCartDto = (cart: CachedCart): CartDto => cart;
 
 const createExpiration = (): Date => new Date(Date.now() + cartTtlMs);
 
+interface CartOwner {
+  readonly userId?: string;
+  readonly guestId?: string;
+}
+
+const isOwnedBy = (cart: CartDto, owner?: CartOwner): boolean => {
+  if (owner === undefined) {
+    return true;
+  }
+
+  if (owner.userId !== undefined) {
+    return cart.userId === owner.userId;
+  }
+
+  if (owner.guestId !== undefined) {
+    return cart.guestId === owner.guestId;
+  }
+
+  return false;
+};
+
 export interface CartService {
   getOrCreateCart(identity: CartIdentityQuery): Promise<CartDto>;
-  getCart(tenantId: string, cartId: string): Promise<CartDto | undefined>;
-  upsertItem(tenantId: string, cartId: string, item: UpsertCartItemBody): Promise<CartDto>;
-  removeItem(tenantId: string, cartId: string, variantId: string): Promise<CartDto | undefined>;
+  getCart(tenantId: string, cartId: string, owner?: CartOwner): Promise<CartDto | undefined>;
+  upsertItem(tenantId: string, cartId: string, item: UpsertCartItemBody, owner?: CartOwner): Promise<CartDto>;
+  removeItem(tenantId: string, cartId: string, variantId: string, owner?: CartOwner): Promise<CartDto | undefined>;
   mergeGuestCart(tenantId: string, sourceCartId: string, targetCartId: string): Promise<CartDto>;
-  syncCart(tenantId: string, cartId: string): Promise<CartDto | undefined>;
+  syncCart(tenantId: string, cartId: string, owner?: CartOwner): Promise<CartDto | undefined>;
   expireCart(tenantId: string, cartId: string): Promise<void>;
 }
 
@@ -61,14 +82,15 @@ export const createCartService = (
     return cart;
   },
 
-  async getCart(tenantId, cartId) {
+  async getCart(tenantId, cartId, owner) {
     const cached = await getCart(redis, tenantId, cartId);
 
     if (cached !== undefined) {
-      return toCartDto(cached);
+      const cart = toCartDto(cached);
+      return isOwnedBy(cart, owner) ? cart : undefined;
     }
 
-    const persisted = await repository.findCart(tenantId, cartId);
+    const persisted = await repository.findCart(tenantId, cartId, owner);
 
     if (persisted !== undefined) {
       await saveCart(redis, toCachedCart(persisted));
@@ -77,7 +99,7 @@ export const createCartService = (
     return persisted;
   },
 
-  async upsertItem(tenantId, cartId, item) {
+  async upsertItem(tenantId, cartId, item, owner) {
     const lock = await acquireInventoryLock(redis, {
       tenantId,
       variantId: item.variantId
@@ -100,7 +122,7 @@ export const createCartService = (
         });
       }
 
-      const existing = await this.getCart(tenantId, cartId);
+      const existing = await this.getCart(tenantId, cartId, owner);
 
       if (existing === undefined) {
         throw Object.assign(new Error("Cart not found"), {
@@ -136,8 +158,8 @@ export const createCartService = (
     }
   },
 
-  async removeItem(tenantId, cartId, variantId) {
-    const existing = await this.getCart(tenantId, cartId);
+  async removeItem(tenantId, cartId, variantId, owner) {
+    const existing = await this.getCart(tenantId, cartId, owner);
 
     if (existing === undefined) {
       return undefined;
@@ -180,8 +202,8 @@ export const createCartService = (
     return merged;
   },
 
-  async syncCart(tenantId, cartId) {
-    const cart = await this.getCart(tenantId, cartId);
+  async syncCart(tenantId, cartId, owner) {
+    const cart = await this.getCart(tenantId, cartId, owner);
 
     if (cart === undefined) {
       return undefined;

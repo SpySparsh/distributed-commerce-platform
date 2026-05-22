@@ -12,9 +12,14 @@ export interface PersistCartInput {
   readonly cart: CartDto;
 }
 
+export interface CartOwnerFilter {
+  readonly userId?: string;
+  readonly guestId?: string;
+}
+
 export interface CartRepository {
   createCart(input: CreateCartInput): Promise<CartDto>;
-  findCart(tenantId: string, cartId: string): Promise<CartDto | undefined>;
+  findCart(tenantId: string, cartId: string, owner?: CartOwnerFilter): Promise<CartDto | undefined>;
   findActiveUserCart(tenantId: string, userId: string): Promise<CartDto | undefined>;
   findActiveGuestCart(tenantId: string, guestId: string): Promise<CartDto | undefined>;
   persistCart(input: PersistCartInput): Promise<void>;

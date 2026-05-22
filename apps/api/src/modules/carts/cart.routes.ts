@@ -82,7 +82,9 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     async (request, reply) => {
       const params = cartParamsSchema.parse(request.params);
       cartIdentityQuerySchema.parse(request.query);
-      const cart = await cartService.getCart(getAuthenticatedTenantId(request), params.cartId);
+      const tenantId = getAuthenticatedTenantId(request);
+      const userId = getAuthenticatedUserId(request);
+      const cart = await cartService.getCart(tenantId, params.cartId, { userId });
 
       if (cart === undefined) {
         await reply.status(404).send({
@@ -118,7 +120,9 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
       const params = cartParamsSchema.parse(request.params);
       cartIdentityQuerySchema.parse(request.query);
       const body = upsertCartItemBodySchema.parse(request.body);
-      const cart = await cartService.upsertItem(getAuthenticatedTenantId(request), params.cartId, body);
+      const tenantId = getAuthenticatedTenantId(request);
+      const userId = getAuthenticatedUserId(request);
+      const cart = await cartService.upsertItem(tenantId, params.cartId, body, { userId });
 
       return {
         ok: true,
@@ -141,7 +145,9 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     async (request) => {
       const params = removeCartItemParamsSchema.parse(request.params);
       cartIdentityQuerySchema.parse(request.query);
-      const cart = await cartService.removeItem(getAuthenticatedTenantId(request), params.cartId, params.variantId);
+      const tenantId = getAuthenticatedTenantId(request);
+      const userId = getAuthenticatedUserId(request);
+      const cart = await cartService.removeItem(tenantId, params.cartId, params.variantId, { userId });
 
       return {
         ok: true,
@@ -190,7 +196,9 @@ export const cartRoutes: FastifyPluginAsync<CartRouteOptions> = async (app, opti
     async (request) => {
       const params = cartParamsSchema.parse(request.params);
       cartIdentityQuerySchema.parse(request.query);
-      const cart = await cartService.syncCart(getAuthenticatedTenantId(request), params.cartId);
+      const tenantId = getAuthenticatedTenantId(request);
+      const userId = getAuthenticatedUserId(request);
+      const cart = await cartService.syncCart(tenantId, params.cartId, { userId });
 
       return {
         ok: true,

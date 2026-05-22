@@ -234,6 +234,10 @@ export class PrismaOrderRepository implements OrderRepository {
         throw orderInventoryNotReservedError();
       }
 
+      if (input.items.length === 0) {
+        throw orderInventoryNotReservedError();
+      }
+
       const now = new Date();
       const cartItems = await tx.cartItem.findMany({
         where: {
@@ -315,6 +319,10 @@ export class PrismaOrderRepository implements OrderRepository {
         const cartItem = cartItemsByProductVariant.get(cartItemKey(orderItem.productId, orderItem.variantId));
 
         if (cartItem === undefined) {
+          throw orderInventoryNotReservedError();
+        }
+
+        if (cartItem.reservations.length === 0) {
           throw orderInventoryNotReservedError();
         }
 
@@ -484,6 +492,10 @@ export class PrismaOrderRepository implements OrderRepository {
           });
 
           if (sumReservationQuantity(activeReservations) !== item.quantity) {
+            throw orderInventoryNotReservedError();
+          }
+
+          if (activeReservations.length === 0) {
             throw orderInventoryNotReservedError();
           }
 

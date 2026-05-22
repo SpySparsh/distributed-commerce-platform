@@ -54,11 +54,26 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
       const body = startCheckoutBodySchema.parse(request.body);
       const tenantId = getAuthenticatedTenantId(request);
       const userId = getAuthenticatedUserId(request);
+      const cachedCart = await getCart(redis, tenantId, body.cartId);
+
+      request.log.info(
+        {
+          cartId: body.cartId,
+          tenantId,
+          userId,
+          cachedCartFound: cachedCart !== undefined,
+          cachedCartUserId: cachedCart?.userId,
+          cachedCartGuestId: cachedCart?.guestId,
+          cachedCartItemCount: cachedCart?.items.length
+        },
+        "Starting checkout"
+      );
+
       const checkout = await options.repository.startCheckout({
         ...body,
         tenantId,
         userId
-      }, await getCart(redis, tenantId, body.cartId), getActor(request));
+      }, cachedCart, getActor(request));
 
       await deleteCart(redis, tenantId, body.cartId);
 

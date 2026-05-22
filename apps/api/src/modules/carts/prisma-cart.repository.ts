@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@ecommerce/database";
-import type { CartRepository, CreateCartInput, PersistCartInput } from "./cart.repository.js";
+import type { CartOwnerFilter, CartRepository, CreateCartInput, PersistCartInput } from "./cart.repository.js";
 import type { CartDto, CartItemDto } from "./cart.types.js";
 
 interface CartItemRow {
@@ -71,13 +71,15 @@ export class PrismaCartRepository implements CartRepository {
     return toCartDto(cart);
   }
 
-  async findCart(tenantId: string, cartId: string): Promise<CartDto | undefined> {
+  async findCart(tenantId: string, cartId: string, owner?: CartOwnerFilter): Promise<CartDto | undefined> {
     const cart = await this.prisma.cart.findFirst({
       where: {
         id: cartId,
         tenantId,
         status: "active",
-        deletedAt: null
+        deletedAt: null,
+        ...(owner?.userId === undefined ? {} : { userId: owner.userId }),
+        ...(owner?.guestId === undefined ? {} : { guestId: owner.guestId })
       },
       include: cartInclude
     });

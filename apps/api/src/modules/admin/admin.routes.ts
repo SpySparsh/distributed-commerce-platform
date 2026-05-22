@@ -147,10 +147,14 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { _sum: { quantity: "desc" } },
       take: 10
     });
-    const products = await app.prisma.product.findMany({
-      where: { tenantId, id: { in: rows.map((row) => row.productId) } },
-      include: productInclude
-    });
+    const productIds = rows.map((row) => row.productId);
+    const products =
+      productIds.length === 0
+        ? []
+        : await app.prisma.product.findMany({
+            where: { tenantId, id: { in: productIds } },
+            include: productInclude
+          });
 
     return {
       ok: true,

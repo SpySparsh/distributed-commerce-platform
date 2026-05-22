@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -20,21 +20,6 @@ export default function Checkout() {
 
   const [paymentMethod, setPaymentMethod] = useState('COD');
   const [loading, setLoading] = useState(false);
-  const [buyNowItem, setBuyNowItem] = useState(null);
-
-  // Detect Buy Now item from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('buyNow');
-    if (stored) {
-      try {
-        const { product, qty } = JSON.parse(stored);
-        setBuyNowItem({ product, qty });
-      } catch (err) {
-        console.error('Invalid buyNow data:', err);
-        localStorage.removeItem('buyNow');
-      }
-    }
-  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -102,9 +87,7 @@ export default function Checkout() {
     setShipping({ ...shipping, [e.target.name]: e.target.value });
   };
 
-  const displayTotal = buyNowItem
-    ? buyNowItem.product.price * buyNowItem.qty
-    : cart.reduce((acc, item) => acc + item.price * item.qty, 0);
+  const displayTotal = cart.reduce((acc, item) => acc + item.price * item.qty, 0);
 
   return (
     <div className="p-6 max-w-xl mx-auto">
