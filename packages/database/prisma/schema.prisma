@@ -71,7 +71,6 @@ enum PaymentWebhookStatus {
 
 enum PaymentProvider {
   stripe
-  razorpay
   cod
   manual
 }

@@ -9,7 +9,6 @@ import {
   paymentParamsSchema,
   paymentRetryBodySchema,
   paymentTenantQuerySchema,
-  verifyPaymentBodySchema,
   webhookParamsSchema
 } from "./payment.schemas.js";
 import { createPaymentService } from "./payment.service.js";
@@ -119,31 +118,6 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
   );
 
   app.post(
-    "/verify",
-    {
-      preHandler: [
-        requirePermission(permissions.paymentsWrite),
-        withRateLimit({ keyPrefix: "payments:verify", maxRequests: 60 }),
-        validateRequest({ body: verifyPaymentBodySchema })
-      ]
-    },
-    async (request) => {
-      const body = verifyPaymentBodySchema.parse(request.body);
-      const payment = await service.verifyPayment({
-        ...body,
-        tenantId: getAuthenticatedTenantId(request)
-      });
-
-      return {
-        ok: true,
-        data: {
-          payment
-        }
-      };
-    }
-  );
-
-  app.post(
     "/retry",
     {
       preHandler: [
@@ -180,10 +154,7 @@ export const paymentRoutes: FastifyPluginAsync<PaymentRouteOptions> = async (app
     },
     async (request) => {
       const params = webhookParamsSchema.parse(request.params);
-      const signature =
-        params.provider === "stripe"
-          ? getHeaderValue(request.headers["stripe-signature"])
-          : getHeaderValue(request.headers["x-razorpay-signature"]);
+      const signature = getHeaderValue(request.headers["stripe-signature"]);
       const result = await service.handleWebhook({
         provider: params.provider,
         rawBody: request.rawBody ?? "",

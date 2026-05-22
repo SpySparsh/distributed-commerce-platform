@@ -53,7 +53,7 @@ export default function OrderDetail() {
           return (
             <div key={productId} className="border-b py-4 flex items-center gap-4">
               <img
-                src={product.image || 'https://via.placeholder.com/80'}
+                src={product.image || '/assets/product-placeholder.svg'}
                 alt={itemName}
                 className="w-20 h-20 object-cover rounded"
               />

@@ -17,7 +17,7 @@ const banners = [
     subtitle: "Swipe. Click. Smile.",
     note: "Fast Delivery | Great Offers",
     image: "https://medias.jeanpaulgaultier.com/cdn-cgi/image/width=412,quality=90,format=avif/medias/sys_master/images/h37/h2b/9530544717854/9530544652318/9530544652318.png", // Replace with your real image
-    image2: "https://parspng.com/wp-content/uploads/2023/02/shoespng.parspng.com_.png", // Extra image 1
+    image2: "https://static.nike.com/a/images/t_default/82b60cf1-a012-4dbe-a99e-90e7d238fc75/custom-nike-air-force-1-low-by-you-shoes.png", // Extra image 1
     image3: "https://file.aiquickdraw.com/imgcompressed/img/compressed_10bc64b044f7b628ae9c772d27355c0e.webp" // Extra image 2
   },
   {

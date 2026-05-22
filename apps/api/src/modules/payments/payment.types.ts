@@ -1,4 +1,4 @@
-export type OnlinePaymentProvider = "stripe" | "razorpay";
+export type OnlinePaymentProvider = "stripe";
 export type PaymentProvider = OnlinePaymentProvider | "cod" | "manual";
 export type PaymentStatus = "pending" | "authorized" | "captured" | "failed" | "refunded" | "cancelled";
 export type PaymentWebhookStatus = "received" | "processed" | "ignored" | "failed";
@@ -30,6 +30,7 @@ export interface PaymentDto {
 export interface PaymentInitiationDto {
   readonly payment: PaymentDto;
   readonly providerClientSecret?: string;
+  readonly providerCheckoutUrl?: string;
   readonly providerOrderId?: string;
   readonly publishableKey?: string;
 }

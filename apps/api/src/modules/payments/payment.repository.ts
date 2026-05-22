@@ -22,14 +22,6 @@ export interface UpdateProviderPaymentInput {
   readonly providerTransactionId?: string;
 }
 
-export interface VerifyProviderPaymentInput {
-  readonly tenantId: string;
-  readonly paymentId: string;
-  readonly provider: "razorpay";
-  readonly providerOrderId: string;
-  readonly providerPaymentId: string;
-}
-
 export interface ApplyPaymentWebhookInput {
   readonly tenantId: string;
   readonly webhook: VerifiedPaymentWebhook;
@@ -55,7 +47,6 @@ export interface PaymentRepository {
     providerPaymentId: string
   ): Promise<PaymentDto | undefined>;
   updateProviderPayment(input: UpdateProviderPaymentInput): Promise<PaymentDto>;
-  verifyProviderPayment(input: VerifyProviderPaymentInput): Promise<PaymentDto>;
   recordWebhook(input: RecordWebhookInput): Promise<PaymentWebhookEventDto>;
   applyWebhook(input: ApplyPaymentWebhookInput): Promise<PaymentDto | undefined>;
   markPaymentRetryScheduled(tenantId: string, paymentId: string, nextRetryAt: Date): Promise<void>;

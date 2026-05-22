@@ -8,7 +8,6 @@ import type {
   PaymentWebhookEventDto,
   RecordWebhookInput,
   UpdateProviderPaymentInput,
-  VerifyProviderPaymentInput
 } from "./payment.repository.js";
 import type {
   PaymentDto,
@@ -65,7 +64,8 @@ interface PaymentTransactionClient {
     create(args: unknown): Promise<unknown>;
   };
   readonly order: {
-    findFirst(args: unknown): Promise<{ readonly cartId: string | null } | null>;
+    findFirst(args: unknown): Promise<{ readonly cartId: string | null; readonly status?: string } | null>;
+    update(args: unknown): Promise<unknown>;
   };
   readonly cart: {
     updateMany(args: unknown): Promise<{ readonly count: number }>;
@@ -79,7 +79,7 @@ const toJsonObject = (value: Record<string, unknown>): Prisma.InputJsonObject =>
   value as Prisma.InputJsonObject;
 
 const toSupportedPaymentProvider = (provider: string): PaymentProvider => {
-  if (provider === "stripe" || provider === "razorpay") {
+  if (provider === "stripe") {
     return provider;
   }
 
@@ -214,64 +214,6 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return toPaymentDto(payment);
   }
 
-  async verifyProviderPayment(input: VerifyProviderPaymentInput): Promise<PaymentDto> {
-    return this.prisma.$transaction(async (tx) => {
-      const payment = await tx.payment.findFirst({
-        where: {
-          id: input.paymentId,
-          tenantId: input.tenantId,
-          provider: input.provider,
-          providerPaymentId: input.providerOrderId,
-          deletedAt: null
-        }
-      });
-
-      if (payment === null) {
-        throw paymentNotFoundError();
-      }
-
-      const now = new Date();
-      const updated = await tx.payment.update({
-        where: {
-          id: payment.id
-        },
-        data: {
-          status: "captured",
-          providerTransactionId: input.providerPaymentId,
-          capturedAt: now
-        }
-      });
-
-      const order = await tx.order.findFirst({
-        where: {
-          id: payment.orderId,
-          tenantId: input.tenantId,
-          deletedAt: null
-        },
-        select: {
-          cartId: true
-        }
-      });
-
-      if (order?.cartId !== null && order?.cartId !== undefined) {
-        await tx.cart.updateMany({
-          where: {
-            id: order.cartId,
-            tenantId: input.tenantId,
-            status: "active",
-            deletedAt: null
-          },
-          data: {
-            status: "converted",
-            lastSyncedAt: now
-          }
-        });
-      }
-
-      return toPaymentDto(updated);
-    });
-  }
-
   async recordWebhook(input: RecordWebhookInput): Promise<PaymentWebhookEventDto> {
     try {
       const event = await this.prisma.paymentWebhookEvent.create({
@@ -384,6 +326,48 @@ export class PrismaPaymentRepository implements PaymentRepository {
             : {})
         }
       });
+
+      const order = await tx.order.findFirst({
+        where: {
+          id: payment.orderId,
+          tenantId: input.tenantId,
+          deletedAt: null
+        },
+        select: {
+          cartId: true,
+          status: true
+        }
+      });
+
+      if (input.webhook.status === "captured" && order !== null) {
+        await tx.order.update({
+          where: {
+            id: payment.orderId
+          },
+          data: {
+            status: "paid",
+            placedAt: now,
+            version: {
+              increment: 1
+            }
+          }
+        });
+
+        if (order.cartId !== null) {
+          await tx.cart.updateMany({
+            where: {
+              id: order.cartId,
+              tenantId: input.tenantId,
+              status: "active",
+              deletedAt: null
+            },
+            data: {
+              status: "converted",
+              lastSyncedAt: now
+            }
+          });
+        }
+      }
 
       if (input.webhook.status === "captured" && payment.status !== "captured") {
         const event = createPaymentCompletedEvent(

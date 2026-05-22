@@ -49,7 +49,7 @@ export const paymentCompletedEventSchema = z.object({
   payload: z.object({
     paymentId: uuidSchema,
     orderId: uuidSchema,
-    provider: z.enum(["stripe", "razorpay", "cod", "manual"]),
+    provider: z.enum(["stripe", "cod", "manual"]),
     amount: z.string().min(1),
     currency: z.string().length(3),
     providerPaymentId: z.string().min(1).optional()

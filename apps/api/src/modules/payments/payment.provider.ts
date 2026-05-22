@@ -51,19 +51,15 @@ const getString = (record: Record<string, unknown>, key: string): string | undef
 };
 
 const stripeStatusMap = new Map<string, PaymentStatus>([
+  ["checkout.session.completed", "captured"],
+  ["checkout.session.async_payment_succeeded", "captured"],
+  ["checkout.session.async_payment_failed", "failed"],
   ["payment_intent.requires_payment_method", "failed"],
   ["payment_intent.processing", "pending"],
   ["payment_intent.requires_capture", "authorized"],
   ["payment_intent.succeeded", "captured"],
   ["payment_intent.payment_failed", "failed"],
   ["charge.refunded", "refunded"]
-]);
-
-const razorpayStatusMap = new Map<string, PaymentStatus>([
-  ["payment.authorized", "authorized"],
-  ["payment.captured", "captured"],
-  ["payment.failed", "failed"],
-  ["refund.processed", "refunded"]
 ]);
 
 class StripePaymentProviderClient implements PaymentProviderClient {
@@ -77,7 +73,9 @@ class StripePaymentProviderClient implements PaymentProviderClient {
     let payload: Record<string, unknown>;
 
     try {
-      const response = await fetch("https://api.stripe.com/v1/payment_intents", {
+      const successUrl = `${this.env.FRONTEND_URL.replace(/\/$/, "")}/order/${input.orderId}?payment=stripe-success`;
+      const cancelUrl = `${this.env.FRONTEND_URL.replace(/\/$/, "")}/checkout?payment=stripe-cancelled`;
+      const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.env.STRIPE_SECRET_KEY}`,
@@ -85,24 +83,32 @@ class StripePaymentProviderClient implements PaymentProviderClient {
           "idempotency-key": input.idempotencyKey
         },
         body: new URLSearchParams({
-          amount: String(toMinorUnits(input.amount)),
-          currency: input.currency.toLowerCase(),
+          mode: "payment",
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          "line_items[0][quantity]": "1",
+          "line_items[0][price_data][currency]": input.currency.toLowerCase(),
+          "line_items[0][price_data][unit_amount]": String(toMinorUnits(input.amount)),
+          "line_items[0][price_data][product_data][name]": `Order ${input.orderId}`,
           "metadata[paymentId]": input.paymentId,
           "metadata[orderId]": input.orderId,
           "metadata[tenantId]": input.tenantId,
-          automatic_payment_methods: "true"
+          "payment_intent_data[metadata][paymentId]": input.paymentId,
+          "payment_intent_data[metadata][orderId]": input.orderId,
+          "payment_intent_data[metadata][tenantId]": input.tenantId,
+          "automatic_payment_methods[enabled]": "true"
         })
       });
 
       payload = getObjectRecord(await response.json());
 
-      console.info("STRIPE PAYMENT INTENT RESPONSE", {
+      console.info("STRIPE CHECKOUT SESSION RESPONSE", {
         paymentId: input.paymentId,
         orderId: input.orderId,
         ok: response.ok,
         status: response.status,
         providerOrderId: getString(payload, "id"),
-        hasClientSecret: getString(payload, "client_secret") !== undefined,
+        hasCheckoutUrl: getString(payload, "url") !== undefined,
         errorMessage: getString(getObjectRecord(payload["error"]), "message")
       });
 
@@ -124,11 +130,11 @@ class StripePaymentProviderClient implements PaymentProviderClient {
       throw paymentProviderRequestFailedError("Stripe", toErrorMessage(error));
     }
 
-    const clientSecret = getString(payload, "client_secret");
     const providerOrderId = getString(payload, "id");
+    const providerCheckoutUrl = getString(payload, "url");
 
     return {
-      ...(clientSecret === undefined ? {} : { providerClientSecret: clientSecret }),
+      ...(providerCheckoutUrl === undefined ? {} : { providerCheckoutUrl }),
       ...(providerOrderId === undefined ? {} : { providerOrderId })
     };
   }
@@ -165,7 +171,9 @@ class StripePaymentProviderClient implements PaymentProviderClient {
     const data = getObjectRecord(getObjectRecord(event["data"])["object"]);
     const eventType = getString(event, "type") ?? "unknown";
     const providerPaymentId = getString(data, "id");
-    const providerTransactionId = getString(data, "latest_charge");
+    const providerTransactionId =
+      getString(data, "payment_intent") ??
+      getString(data, "latest_charge");
 
     return {
       provider: "stripe",
@@ -179,124 +187,7 @@ class StripePaymentProviderClient implements PaymentProviderClient {
   }
 }
 
-class RazorpayPaymentProviderClient implements PaymentProviderClient {
-  constructor(private readonly env: ApiEnv) {}
-
-  async createPayment(input: CreateProviderPaymentInput): Promise<Omit<PaymentInitiationDto, "payment">> {
-    if (this.env.RAZORPAY_KEY_ID === undefined || this.env.RAZORPAY_KEY_SECRET === undefined) {
-      throw paymentProviderNotConfiguredError();
-    }
-
-    const amount = toMinorUnits(input.amount);
-    const currency = "INR";
-
-    console.info("RAZORPAY CONFIG", {
-      key: this.env.RAZORPAY_KEY_ID !== undefined,
-      secret: this.env.RAZORPAY_KEY_SECRET !== undefined
-    });
-    console.info("RAZORPAY ORDER PAYLOAD", {
-      paymentId: input.paymentId,
-      orderId: input.orderId,
-      amount,
-      currency,
-      sourceCurrency: input.currency
-    });
-
-    const credentials = Buffer.from(`${this.env.RAZORPAY_KEY_ID}:${this.env.RAZORPAY_KEY_SECRET}`).toString("base64");
-    let payload: Record<string, unknown>;
-
-    try {
-      const response = await fetch("https://api.razorpay.com/v1/orders", {
-        method: "POST",
-        headers: {
-          authorization: `Basic ${credentials}`,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify({
-          amount,
-          currency,
-          receipt: input.orderId,
-          notes: {
-            paymentId: input.paymentId,
-            tenantId: input.tenantId,
-            idempotencyKey: input.idempotencyKey,
-            sourceCurrency: input.currency
-          }
-        })
-      });
-
-      payload = getObjectRecord(await response.json());
-
-      console.info("RAZORPAY ORDER RESPONSE", {
-        paymentId: input.paymentId,
-        orderId: input.orderId,
-        ok: response.ok,
-        status: response.status,
-        providerOrderId: getString(payload, "id"),
-        errorDescription: getString(getObjectRecord(payload["error"]), "description")
-      });
-
-      if (!response.ok) {
-        throw paymentProviderRequestFailedError(
-          "Razorpay",
-          getString(getObjectRecord(payload["error"]), "description") ?? "Razorpay API rejected order creation"
-        );
-      }
-    } catch (error) {
-      if ("code" in Object(error)) {
-        throw error;
-      }
-
-      console.error("PAYMENT PROVIDER ERROR:", error);
-      if (error instanceof Error && error.stack !== undefined) {
-        console.error(error.stack);
-      }
-      throw paymentProviderRequestFailedError("Razorpay", toErrorMessage(error));
-    }
-
-    const providerOrderId = getString(payload, "id");
-
-    return {
-      ...(providerOrderId === undefined ? {} : { providerOrderId }),
-      publishableKey: this.env.RAZORPAY_KEY_ID
-    };
-  }
-
-  verifyWebhook(input: { readonly rawBody: string; readonly signature: string | undefined }): VerifiedPaymentWebhook {
-    if (this.env.RAZORPAY_WEBHOOK_SECRET === undefined || input.signature === undefined) {
-      throw paymentProviderNotConfiguredError();
-    }
-
-    const computed = createHmac("sha256", this.env.RAZORPAY_WEBHOOK_SECRET)
-      .update(input.rawBody)
-      .digest("hex");
-
-    if (!safeEqual(computed, input.signature)) {
-      throw invalidWebhookSignatureError();
-    }
-
-    const event = getObjectRecord(JSON.parse(input.rawBody));
-    const eventType = getString(event, "event") ?? "unknown";
-    const paymentEntity = getObjectRecord(getObjectRecord(getObjectRecord(event["payload"])["payment"])["entity"]);
-    const providerPaymentId = getString(paymentEntity, "order_id");
-    const providerTransactionId = getString(paymentEntity, "id");
-
-    return {
-      provider: "razorpay",
-      providerEventId: getString(event, "id") ?? `${eventType}:${providerPaymentId ?? "unknown"}`,
-      eventType,
-      ...(providerPaymentId === undefined ? {} : { providerPaymentId }),
-      ...(providerTransactionId === undefined ? {} : { providerTransactionId }),
-      status: razorpayStatusMap.get(eventType) ?? "pending",
-      payload: event
-    };
-  }
-}
-
 export const createPaymentProviderClient = (
-  provider: OnlinePaymentProvider,
+  _provider: OnlinePaymentProvider,
   env: ApiEnv
-): PaymentProviderClient =>
-  provider === "stripe"
-    ? new StripePaymentProviderClient(env)
-    : new RazorpayPaymentProviderClient(env);
+): PaymentProviderClient => new StripePaymentProviderClient(env);

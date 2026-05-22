@@ -51,8 +51,6 @@ export default function Checkout() {
   } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const razorpayKey = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-
 
   const [shipping, setShipping] = useState({
     address: '',
@@ -61,7 +59,7 @@ export default function Checkout() {
     phone: ''
   });
 
-  const [paymentMethod, setPaymentMethod] = useState('COD');
+  const [paymentMethod, setPaymentMethod] = useState('cod');
   const [loading, setLoading] = useState(false);
   const [isBuyNow, setIsBuyNow] = useState(false);
 
@@ -110,12 +108,7 @@ export default function Checkout() {
       beginCheckoutLock?.();
       releaseCheckoutLock = true;
 
-      const provider =
-        paymentMethod === 'UPI'
-          ? 'razorpay'
-          : paymentMethod === 'Card'
-            ? 'stripe'
-            : 'cod';
+      const provider = paymentMethod === 'stripe' ? 'stripe' : 'cod';
       idempotencyScope = isBuyNow
         ? `buy-now:${buyNowPayload.product.variantId}:${buyNowPayload.quantity}`
         : activeCart.id;
@@ -147,68 +140,17 @@ export default function Checkout() {
         throw err;
       }
 
-      if (provider === 'razorpay') {
-        if (!checkout.payment?.providerOrderId) {
-          throw new Error('Razorpay order was not created. Payment cannot continue.');
+      if (provider === 'stripe') {
+        const checkoutUrl = checkout.payment?.providerCheckoutUrl;
+
+        if (!checkoutUrl) {
+          throw new Error('Stripe checkout session was not created. Payment cannot continue.');
         }
 
-        if (!window.Razorpay) {
-          throw new Error('Razorpay checkout script is not loaded.');
-        }
-
-        const options = {
-          key: razorpayKey || checkout.payment.publishableKey,
-          amount: Number(checkout.payment.payment.amount) * 100,
-          currency: 'INR',
-          name: 'MyShop',
-          description: 'Order Payment',
-          order_id: checkout.payment.providerOrderId,
-          prefill: {
-            email: user.email,
-            contact: shipping.phone
-          },
-          theme: { color: '#3399cc' },
-          handler: async (response) => {
-            try {
-              await axios.post('/payments/verify', {
-                provider: 'razorpay',
-                paymentId: checkout.payment.payment.id,
-                providerOrderId: checkout.payment.providerOrderId,
-                providerPaymentId: response.razorpay_payment_id,
-                signature: response.razorpay_signature
-              });
-              clearCheckoutIdempotencyKey(idempotencyScope);
-              localStorage.removeItem('buyNowCheckout');
-
-              if (!isBuyNow) {
-                resetCart();
-                try {
-                  await createFreshCart('razorpay-payment-returned');
-                } catch (freshCartError) {
-                  console.warn('Payment returned, but a fresh cart could not be created immediately:', freshCartError);
-                }
-              }
-
-              const orderId = checkout.order?.id || checkout.order?._id || checkout.id || checkout._id;
-              if (orderId) {
-                navigate(`/order/${orderId}`);
-              }
-            } finally {
-              endCheckoutLock?.();
-              setLoading(false);
-            }
-          },
-          modal: {
-            ondismiss: () => {
-              console.warn('Razorpay checkout was dismissed; cart/order state was left unchanged for retry.');
-              endCheckoutLock?.();
-              setLoading(false);
-            }
-          }
-        };
-
-        new window.Razorpay(options).open();
+        clearCheckoutIdempotencyKey(idempotencyScope);
+        endCheckoutLock?.();
         releaseCheckoutLock = false;
+        window.location.assign(checkoutUrl);
         return;
       }
 
@@ -331,9 +273,8 @@ export default function Checkout() {
             onChange={(e) => setPaymentMethod(e.target.value)}
             className="border px-2 py-1 rounded w-full"
           >
-            <option value="COD">Cash on Delivery</option>
-            <option value="Card">Credit/Debit Card</option>
-            <option value="UPI">UPI</option>
+            <option value="cod">Cash on Delivery</option>
+            <option value="stripe">UPI / Card / Wallet</option>
           </select>
         </div>
 

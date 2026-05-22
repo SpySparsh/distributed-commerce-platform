@@ -23,7 +23,7 @@ export interface EcommerceEventEmitters {
     readonly context: DomainEventContext;
     readonly paymentId: string;
     readonly orderId: string;
-    readonly provider: "stripe" | "razorpay" | "cod" | "manual";
+    readonly provider: "stripe" | "cod" | "manual";
     readonly amount: string;
     readonly currency: string;
     readonly providerPaymentId?: string;

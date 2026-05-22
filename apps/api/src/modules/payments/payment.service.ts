@@ -1,20 +1,17 @@
 import { jobNames, type QueueProducer } from "@ecommerce/queue";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import type { ApiEnv } from "../../env.js";
-import { invalidWebhookSignatureError, paymentNotFoundError, paymentProviderNotConfiguredError } from "./payment.errors.js";
+import { paymentNotFoundError } from "./payment.errors.js";
 import type {
   PaymentRepository
 } from "./payment.repository.js";
 import type {
   InitiatePaymentBody,
-  PaymentRetryBody,
-  VerifyPaymentBody
+  PaymentRetryBody
 } from "./payment.schemas.js";
 import type {
   PaymentDto,
   PaymentInitiationDto,
   OnlinePaymentProvider,
-  PaymentProvider,
   VerifiedPaymentWebhook
 } from "./payment.types.js";
 import { createPaymentProviderClient } from "./payment.provider.js";
@@ -22,7 +19,6 @@ import { createPaymentProviderClient } from "./payment.provider.js";
 export interface PaymentService {
   initiatePayment(input: InitiatePaymentBody): Promise<PaymentInitiationDto>;
   getPayment(tenantId: string, paymentId: string): Promise<PaymentDto | undefined>;
-  verifyPayment(input: VerifyPaymentBody): Promise<PaymentDto>;
   handleWebhook(input: {
     readonly provider: OnlinePaymentProvider;
     readonly rawBody: string;
@@ -76,28 +72,6 @@ export const createPaymentService = (
 
   getPayment(tenantId, paymentId) {
     return repository.findPaymentById(tenantId, paymentId);
-  },
-
-  async verifyPayment(input) {
-    if (input.provider !== "razorpay") {
-      throw paymentProviderNotConfiguredError();
-    }
-
-    if (env.RAZORPAY_KEY_SECRET === undefined) {
-      throw paymentProviderNotConfiguredError();
-    }
-
-    const expected = createHmac("sha256", env.RAZORPAY_KEY_SECRET)
-      .update(`${input.providerOrderId}|${input.providerPaymentId}`)
-      .digest("hex");
-    const expectedBuffer = Buffer.from(expected);
-    const actualBuffer = Buffer.from(input.signature);
-
-    if (expectedBuffer.length !== actualBuffer.length || !timingSafeEqual(expectedBuffer, actualBuffer)) {
-      throw invalidWebhookSignatureError();
-    }
-
-    return repository.verifyProviderPayment(input);
   },
 
   async handleWebhook(input) {

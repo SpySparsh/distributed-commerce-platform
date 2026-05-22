@@ -62,7 +62,7 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
           tenantId,
           userId,
           paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
-          razorpayConfigured: app.config.RAZORPAY_KEY_ID !== undefined && app.config.RAZORPAY_KEY_SECRET !== undefined,
+          stripeConfigured: app.config.STRIPE_SECRET_KEY !== undefined,
           cachedCartFound: cachedCart !== undefined,
           cachedCartUserId: cachedCart?.userId,
           cachedCartGuestId: cachedCart?.guestId,
@@ -81,7 +81,7 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         request.log.info(
           {
             paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
-            razorpayKeyConfigured: app.config.RAZORPAY_KEY_ID !== undefined
+            stripeConfigured: app.config.STRIPE_SECRET_KEY !== undefined
           },
           "STEP 5: initialize payment provider"
         );
@@ -141,7 +141,7 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
           tenantId,
           userId,
           paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
-          razorpayConfigured: app.config.RAZORPAY_KEY_ID !== undefined && app.config.RAZORPAY_KEY_SECRET !== undefined
+          stripeConfigured: app.config.STRIPE_SECRET_KEY !== undefined
         },
         "Starting buy-now checkout without cart mutation"
       );
@@ -156,7 +156,7 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         request.log.info(
           {
             paymentMethod: body.provider ?? app.config.PAYMENT_PROVIDER,
-            razorpayKeyConfigured: app.config.RAZORPAY_KEY_ID !== undefined
+            stripeConfigured: app.config.STRIPE_SECRET_KEY !== undefined
           },
           "BUY_NOW STEP 5: initialize payment provider"
         );

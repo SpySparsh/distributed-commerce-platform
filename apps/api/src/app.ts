@@ -13,11 +13,7 @@ export interface BuildAppOptions {
 }
 
 const validateDefaultPaymentProviderConfig = (config: ApiEnv): void => {
-  if (config.PAYMENT_PROVIDER === "razorpay" && (config.RAZORPAY_KEY_ID === undefined || config.RAZORPAY_KEY_SECRET === undefined)) {
-    throw new Error("PAYMENT_PROVIDER=razorpay requires RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
-  }
-
-  if (config.PAYMENT_PROVIDER === "stripe" && config.STRIPE_SECRET_KEY === undefined) {
+  if (config.STRIPE_SECRET_KEY === undefined) {
     throw new Error("PAYMENT_PROVIDER=stripe requires STRIPE_SECRET_KEY");
   }
 };
@@ -40,9 +36,8 @@ export const buildApp = async ({ config }: BuildAppOptions): Promise<FastifyInst
   await registerPlugins(app, config);
   app.log.info({
     defaultProvider: config.PAYMENT_PROVIDER,
-    razorpayKeyConfigured: config.RAZORPAY_KEY_ID !== undefined,
-    razorpaySecretConfigured: config.RAZORPAY_KEY_SECRET !== undefined,
-    stripeSecretConfigured: config.STRIPE_SECRET_KEY !== undefined
+    stripeSecretConfigured: config.STRIPE_SECRET_KEY !== undefined,
+    stripeWebhookConfigured: config.STRIPE_WEBHOOK_SECRET !== undefined
   }, "Payment provider configuration validated");
   registerLifecycleHooks(app);
   await registerRoutes(app);

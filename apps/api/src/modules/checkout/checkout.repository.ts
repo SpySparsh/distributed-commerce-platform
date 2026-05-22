@@ -192,7 +192,7 @@ const toOrderDto = (row: OrderRow): OrderDto => ({
 });
 
 const toPaymentProvider = (provider: string): PaymentProvider => {
-  if (provider === "stripe" || provider === "razorpay" || provider === "cod" || provider === "manual") {
+  if (provider === "stripe" || provider === "cod" || provider === "manual") {
     return provider;
   }
 
@@ -550,10 +550,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
         order: result.order,
         payment: {
           payment: result.payment,
-          providerOrderId: result.payment.providerPaymentId,
-          ...(provider === "razorpay" && this.env.RAZORPAY_KEY_ID !== undefined
-            ? { publishableKey: this.env.RAZORPAY_KEY_ID }
-            : {})
+          providerOrderId: result.payment.providerPaymentId
         }
       };
     }
@@ -564,12 +561,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       orderId: result.payment.orderId,
       amount: result.payment.amount,
       currency: result.payment.currency,
-      keyIdExists: provider === "razorpay"
-        ? this.env.RAZORPAY_KEY_ID !== undefined
-        : this.env.STRIPE_SECRET_KEY !== undefined,
-      secretExists: provider === "razorpay"
-        ? this.env.RAZORPAY_KEY_SECRET !== undefined
-        : this.env.STRIPE_SECRET_KEY !== undefined
+      stripeSecretConfigured: this.env.STRIPE_SECRET_KEY !== undefined
     });
 
     const providerClient = createPaymentProviderClient(provider, this.env);
@@ -601,6 +593,9 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
       ...(providerResult.providerClientSecret === undefined
         ? {}
         : { providerClientSecret: providerResult.providerClientSecret }),
+      ...(providerResult.providerCheckoutUrl === undefined
+        ? {}
+        : { providerCheckoutUrl: providerResult.providerCheckoutUrl }),
       ...(providerResult.providerOrderId === undefined ? {} : { providerOrderId: providerResult.providerOrderId }),
       ...(providerResult.publishableKey === undefined ? {} : { publishableKey: providerResult.publishableKey })
     };

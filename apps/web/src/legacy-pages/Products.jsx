@@ -37,7 +37,7 @@ export default function Products() {
           <div key={product._id} className="border rounded-lg p-4 shadow hover:shadow-lg">
             <Link to={`/product/${product.slug || product._id}`}>
               <img
-                src={product.image || 'https://via.placeholder.com/150'}
+                src={product.image || '/assets/product-placeholder.svg'}
                 alt={product.name}
                 className="w-full h-40 object-cover rounded"
               />

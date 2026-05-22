@@ -52,7 +52,7 @@ export default function ProductDetail() {
         {/* Left: Product Image */}
         <div className="bg-white rounded shadow-md">
           <img
-            src={product.image || 'https://via.placeholder.com/400'}
+            src={product.image || '/assets/product-placeholder.svg'}
             alt={product.name}
             className="w-full h-auto object-cover rounded"
           />
