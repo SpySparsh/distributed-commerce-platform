@@ -75,7 +75,21 @@ export const checkoutRoutes: FastifyPluginAsync<CheckoutRouteOptions> = async (a
         userId
       }, cachedCart, getActor(request));
 
-      await deleteCart(redis, tenantId, body.cartId);
+      if (checkout.cart.status === "converted") {
+        try {
+          await deleteCart(redis, tenantId, body.cartId);
+        } catch (error) {
+          request.log.error(
+            {
+              err: error,
+              cartId: body.cartId,
+              tenantId,
+              userId
+            },
+            "Checkout succeeded but cart cache invalidation failed"
+          );
+        }
+      }
 
       await reply.status(201).send({
         ok: true,

@@ -4,6 +4,33 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from '../api/axios';
 
+const checkoutIdempotencyStorageKey = (cartId) => `checkout:idempotency:${cartId}`;
+
+const createCheckoutIdempotencyKey = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const getCheckoutIdempotencyKey = (cartId) => {
+  const storageKey = checkoutIdempotencyStorageKey(cartId);
+  const existing = localStorage.getItem(storageKey);
+
+  if (existing) {
+    return existing;
+  }
+
+  const next = createCheckoutIdempotencyKey();
+  localStorage.setItem(storageKey, next);
+  return next;
+};
+
+const clearCheckoutIdempotencyKey = (cartId) => {
+  localStorage.removeItem(checkoutIdempotencyStorageKey(cartId));
+};
+
 export default function Checkout() {
   const { cart, resetCart, createFreshCart, getOrCreateActiveCart } = useCart();
   const { user } = useAuth();
@@ -39,14 +66,30 @@ export default function Checkout() {
           : paymentMethod === 'Card'
             ? 'stripe'
             : 'cod';
-      const { data: checkout } = await axios.post('/checkout/start', {
+      const idempotencyKey = getCheckoutIdempotencyKey(activeCart.id);
+      const checkoutPayload = {
         cartId: activeCart.id,
         email: user.email,
         shippingAddress: shipping,
         billingAddress: shipping,
         provider,
-        idempotencyKey: `${activeCart.id}-${Date.now()}`
-      });
+        idempotencyKey
+      };
+      let checkout;
+
+      try {
+        ({ data: checkout } = await axios.post('/checkout/start', checkoutPayload));
+      } catch (err) {
+        if (err.response?.status < 500) {
+          throw err;
+        }
+
+        console.warn('Checkout returned a server error; retrying once with same idempotency key', {
+          cartId: activeCart.id,
+          idempotencyKey
+        });
+        ({ data: checkout } = await axios.post('/checkout/start', checkoutPayload));
+      }
 
       if (provider === 'razorpay' && checkout.payment?.providerOrderId && window.Razorpay) {
         const options = {
@@ -60,10 +103,25 @@ export default function Checkout() {
             email: user.email,
             contact: shipping.phone
           },
-          theme: { color: '#3399cc' }
+          theme: { color: '#3399cc' },
+          handler: async () => {
+            clearCheckoutIdempotencyKey(activeCart.id);
+            localStorage.removeItem('buyNow');
+            resetCart();
+            try {
+              await createFreshCart('razorpay-payment-returned');
+            } catch (freshCartError) {
+              console.warn('Payment returned, but a fresh cart could not be created immediately:', freshCartError);
+            }
+            const orderId = checkout.order?.id || checkout.order?._id || checkout.id || checkout._id;
+            if (orderId) {
+              navigate(`/order/${orderId}`);
+            }
+          }
         };
 
         new window.Razorpay(options).open();
+        return;
       }
 
       const orderId = checkout.order?.id || checkout.order?._id || checkout.id || checkout._id;
@@ -72,6 +130,7 @@ export default function Checkout() {
         throw new Error('Checkout succeeded but the response did not include an order id.');
       }
 
+      clearCheckoutIdempotencyKey(activeCart.id);
       localStorage.removeItem('buyNow');
       resetCart();
       try {
