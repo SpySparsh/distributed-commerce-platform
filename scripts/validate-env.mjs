@@ -121,16 +121,6 @@ if (!existsSync(envPath)) {
     }
   }
 
-  if (paymentProvider === "razorpay") {
-    for (const key of ["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET"]) {
-      const value = env.get(key);
-
-      if (value === undefined || value.length === 0) {
-        warnings.push(`${key} is empty. Razorpay payment/webhook flows will not work until it is set.`);
-      }
-    }
-  }
-
   if (env.get("AUTH_COOKIE_SECURE") === "true" && env.get("NEXT_PUBLIC_API_URL")?.startsWith("http://")) {
     warnings.push("AUTH_COOKIE_SECURE=true with local HTTP can block auth cookies. Use false for local HTTP testing.");
   }

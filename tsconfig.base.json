@@ -37,11 +37,7 @@
       "@ecommerce/ui": ["packages/ui/src/index.ts"],
       "@ecommerce/ui/*": ["packages/ui/src/*"],
       "@ecommerce/validation": ["packages/validation/src/index.ts"],
-      "@ecommerce/validation/*": ["packages/validation/src/*"],
-      "@ecommerce/shared": ["packages/shared/src/index.ts"],
-      "@ecommerce/shared/*": ["packages/shared/src/*"],
-      "@server/*": ["server/src/*"],
-      "@web/*": ["ecommerce-frontend/src/*"]
+      "@ecommerce/validation/*": ["packages/validation/src/*"]
     }
   }
 }

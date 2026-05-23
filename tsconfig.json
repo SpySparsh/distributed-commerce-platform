@@ -11,11 +11,8 @@
     { "path": "./packages/logger" },
     { "path": "./packages/queue" },
     { "path": "./packages/search" },
-    { "path": "./packages/shared" },
     { "path": "./packages/types" },
     { "path": "./packages/ui" },
-    { "path": "./packages/validation" },
-    { "path": "./server" },
-    { "path": "./ecommerce-frontend" }
+    { "path": "./packages/validation" }
   ]
 }

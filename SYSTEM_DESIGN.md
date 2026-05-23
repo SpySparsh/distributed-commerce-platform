@@ -36,7 +36,7 @@ flowchart TB
   end
 
   subgraph External
-    PaymentProvider["Stripe / Razorpay"]
+    PaymentProvider["Stripe Checkout"]
     Sentry["Sentry"]
   end
 

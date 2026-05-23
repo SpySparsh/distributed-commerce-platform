@@ -2,23 +2,23 @@
 
 ## Current Reality
 
-The repository currently contains a Vite React frontend and an Express backend using Mongoose. The requested target mentions Next.js, Prisma, and PostgreSQL, so treat that as the future platform direction rather than the current implementation. Do not combine the database migration with the TypeScript migration in the same phase.
+The repository now runs through the monorepo apps: `apps/web` for the Next.js frontend, `apps/api` for the Fastify API, and `apps/worker` for BullMQ workers. Prisma and PostgreSQL live behind `packages/database`.
 
 ## Target Architecture
 
-- `ecommerce-frontend`: frontend app, gradually migrated from `.jsx` to `.tsx`.
-- `server`: backend app, gradually migrated from CommonJS JavaScript to TypeScript.
-- `packages/shared`: reusable contracts shared by frontend and backend.
+- `apps/web`: frontend app, with migrated React pages hosted inside the Next.js App Router.
+- `apps/api`: Fastify backend app with Prisma-backed repositories.
+- `packages/types`, `packages/validation`, and domain packages: reusable contracts and runtime helpers shared by active apps.
 - `tsconfig.base.json`: strict shared compiler rules.
 - Project-level `tsconfig.json` files opt into gradual migration with `allowJs: true` and `checkJs: false`.
 
 ## Type Architecture Decisions
 
-- Shared DTOs live in `packages/shared/src`, grouped by domain, API envelope, errors, and validation helpers. This avoids a single global types file that becomes impossible to govern.
+- Shared DTOs should live in focused packages such as `packages/types` and `packages/validation`, grouped by responsibility instead of a single global shared package.
 - Zod schemas are the contract source of truth for API boundaries. TypeScript DTOs are inferred with `z.infer`, so validation and static typing cannot silently diverge.
 - API responses use a discriminated `ok: true | false` shape. Frontend code can narrow safely without guessing whether `data` or `error` exists.
 - Errors use a finite `AppErrorCode` union and typed field errors. This gives backend middleware, frontend forms, and logs the same error vocabulary.
-- Environment variables are parsed once through `serverEnvSchema`. Runtime configuration enters the app as a typed object instead of raw `process.env` strings.
+- Environment variables are parsed through app-specific schemas in the active runtimes. Runtime configuration enters each app as a typed object instead of raw `process.env` strings.
 - Prisma types should stay inside the backend. Shared types expose API DTOs, while Prisma select objects and mapper functions convert database rows into transport-safe DTOs.
 - Path aliases are defined at the base config and repeated per project where runtime tooling needs them. Aliases are for ownership boundaries, not hiding tangled imports.
 
@@ -32,11 +32,10 @@ The repository currently contains a Vite React frontend and an Express backend u
 
 ## Backend Foundation
 
-- `server/src/config/env.ts` validates and types server configuration.
-- `server/src/middlewares/validateRequest.ts` gives routes a reusable Zod validation middleware.
-- `server/src/types/http.ts` provides typed Express request helpers for migrated controllers.
-- `server/src/db/prisma.types.ts` establishes DTO mapper and select-object patterns for the future Prisma data layer.
-- `prisma/schema.prisma` defines the intended PostgreSQL ecommerce model without forcing the current Mongoose runtime to change yet.
+- `apps/api/src/env.ts` validates and types API configuration.
+- `apps/api/src/http/validate.ts` gives routes reusable Zod validation and rate-limit helpers.
+- `apps/api/src/plugins/*` owns Fastify lifecycle, auth, database, Redis, queue, and security wiring.
+- `packages/database/prisma/schema.prisma` defines the active PostgreSQL ecommerce model.
 
 ## Prisma Typing Pattern
 
@@ -53,11 +52,11 @@ After Prisma generation is active, tighten select objects with `satisfies Prisma
 
 1. Foundation
    - Add strict TypeScript configuration.
-   - Add workspace scripts and shared types package.
+   - Add workspace scripts and focused shared packages.
    - Add path aliases without changing runtime behavior.
 
 2. Contracts First
-   - Move API request and response shapes into `packages/shared`.
+   - Move API request and response shapes into focused package or app-owned modules.
    - Type frontend API clients before typing UI screens.
    - Type backend route contracts before controllers.
 
@@ -67,8 +66,8 @@ After Prisma generation is active, tighten select objects with `satisfies Prisma
    - Keep controllers thin and typed around request params, body, query, and response payloads.
 
 4. Data Layer
-   - If staying on Mongoose, define model document types and DTO mappers.
-   - If moving to Prisma/PostgreSQL, create Prisma schema and migration plan separately, then expose domain DTOs instead of leaking Prisma models.
+   - Keep Prisma/PostgreSQL behind repository modules.
+   - Expose domain DTOs instead of leaking Prisma models.
 
 5. Frontend
    - Convert API layer, contexts, route guards, and data-heavy components before presentational components.
@@ -100,9 +99,9 @@ After Prisma generation is active, tighten select objects with `satisfies Prisma
 ## High-Risk Areas
 
 - Authentication cookies, JWT payloads, and role checks.
-- Payment integrations with Stripe, Razorpay, and order state changes.
+- Payment integrations with Stripe and order state changes.
 - Cart and checkout calculations.
-- Mongoose document shape versus API response shape.
+- Prisma row shape versus API response shape.
 - Error handling middleware, because Express errors are often structurally inconsistent.
 - Environment variables, especially secrets and database URLs.
 - Future Prisma/PostgreSQL migration, because it changes persistence semantics and should be isolated from the TypeScript rollout.

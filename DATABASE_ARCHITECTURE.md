@@ -2,7 +2,7 @@
 
 ## Shape
 
-The source-of-truth schema lives at `packages/database/prisma/schema.prisma`. A root `prisma/schema.prisma` mirror is kept during migration so older tooling has the same model.
+The source-of-truth schema lives at `packages/database/prisma/schema.prisma`. Prisma config, migrations, and seed data are owned by `packages/database`; root-level Prisma mirrors are intentionally not part of the runtime path.
 
 Core decisions:
 

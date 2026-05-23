@@ -7,8 +7,8 @@ This foundation treats payment state as provider-confirmed state, not frontend-c
 1. Client calls `POST /payments` with `tenantId`, `orderId`, amount, currency, and an idempotency key.
 2. API creates or reuses a local `Payment` row in `pending` status.
 3. API creates a provider payment object with the same idempotency key.
-4. Client receives provider confirmation data, such as Stripe `client_secret` or Razorpay `order_id`.
-5. Provider sends signed webhooks to `POST /payments/webhooks/:provider`.
+4. Client receives Stripe Checkout session details or a provider checkout URL.
+5. Stripe sends signed webhooks to `POST /payments/stripe/webhook`.
 6. API verifies the signature, records the webhook event, then applies state changes transactionally.
 
 ## Consistency Rules
@@ -26,7 +26,7 @@ The API exposes a small `PaymentProviderClient` interface:
 - `createPayment`
 - `verifyWebhook`
 
-Stripe and Razorpay adapters sit behind that interface. SDKs can replace the HTTP implementation later without changing routes, repositories, or business services.
+Stripe is the only online payment provider. COD is handled as an offline/manual payment path.
 
 ## Webhook Verification
 
@@ -35,11 +35,6 @@ Stripe verification uses:
 - `Stripe-Signature`
 - timestamp tolerance
 - HMAC SHA-256 over `timestamp.rawBody`
-
-Razorpay verification uses:
-
-- `x-razorpay-signature`
-- HMAC SHA-256 over the raw body
 
 Production deployments should preserve the raw request body for webhook routes. If a JSON parser mutates formatting before verification, signatures will fail.
 

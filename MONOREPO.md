@@ -6,12 +6,7 @@
 - `apps/api`: Fastify HTTP API.
 - `apps/worker`: BullMQ background workers and scheduled jobs.
 
-Legacy folders remain in place during migration:
-
-- `ecommerce-frontend`: current Vite frontend.
-- `server`: current Express/Mongoose backend.
-
-The new `apps/*` tree is intentionally empty of business logic so migration can happen slice by slice.
+The `apps/*` tree is the canonical runtime surface for local development, Docker, and deployment workflows.
 
 ## Shared Packages
 
@@ -24,7 +19,7 @@ The new `apps/*` tree is intentionally empty of business logic so migration can 
 
 ## Local Infrastructure
 
-- `docker-compose.yml` runs PostgreSQL and Redis for local development.
+- `docker-compose.yml` runs the web, API, worker, Redis, and Meilisearch services for local development. PostgreSQL is supplied through the configured `DATABASE_URL`.
 - `apps/web/Dockerfile`, `apps/api/Dockerfile`, and `apps/worker/Dockerfile` establish separate deployable units.
 - `.env.example` documents runtime configuration without committing secrets.
 
