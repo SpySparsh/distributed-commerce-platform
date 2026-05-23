@@ -2,7 +2,7 @@ import { Prisma } from "@ecommerce/database";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
-import { getAuthenticatedTenantId, getAuthenticatedUserId, requirePermission } from "../auth/auth.middleware.js";
+import { getAuthenticatedTenantId, getAuthenticatedUserId, requireAuth, requirePermission } from "../auth/auth.middleware.js";
 import { permissions } from "../auth/permissions.js";
 
 const productReviewsParamsSchema = z.object({
@@ -26,9 +26,18 @@ const createReviewBodySchema = z.object({
   comment: z.string().trim().min(1).max(2_000)
 });
 
+const reviewEligibilityQuerySchema = z.object({
+  productId: z.uuid(),
+  orderId: z.uuid(),
+  orderItemId: z.uuid()
+});
+
 const moderateReviewBodySchema = z.object({
   status: z.enum(["approved", "rejected"])
 });
+
+const eligibleOrderStatuses = ["confirmed", "paid", "fulfilled"] as const;
+const eligiblePaymentStatuses = ["authorized", "captured"] as const;
 
 const toReviewDto = (review: {
   readonly id: string;
@@ -100,6 +109,113 @@ const recalculateProductRating = async (
 
 const createError = (code: string, message: string, statusCode: number): Error =>
   Object.assign(new Error(message), { code, statusCode });
+
+const evaluateReviewEligibility = async (
+  prisma: Prisma.TransactionClient,
+  input: {
+    readonly tenantId: string;
+    readonly userId: string;
+    readonly productId: string;
+    readonly orderId: string;
+    readonly orderItemId: string;
+  }
+): Promise<{
+  readonly eligible: boolean;
+  readonly reason?: string;
+  readonly order?: {
+    readonly id: string;
+    readonly status: string;
+    readonly items: readonly {
+      readonly id: string;
+      readonly productId: string;
+    }[];
+    readonly payments: readonly {
+      readonly id: string;
+      readonly status: string;
+      readonly provider: string;
+    }[];
+  };
+}> => {
+  const order = await prisma.order.findFirst({
+    where: {
+      tenantId: input.tenantId,
+      id: input.orderId,
+      userId: input.userId,
+      deletedAt: null
+    },
+    select: {
+      id: true,
+      status: true,
+      items: {
+        where: {
+          deletedAt: null
+        },
+        select: {
+          id: true,
+          productId: true
+        }
+      },
+      payments: {
+        where: {
+          tenantId: input.tenantId,
+          deletedAt: null
+        },
+        select: {
+          id: true,
+          status: true,
+          provider: true
+        },
+        orderBy: {
+          createdAt: "desc"
+        }
+      }
+    }
+  });
+
+  if (order === null) {
+    return {
+      eligible: false,
+      reason: "ORDER_NOT_FOUND_OR_NOT_OWNED"
+    };
+  }
+
+  const matchingItem = order.items.find((item) =>
+    item.id === input.orderItemId && item.productId === input.productId
+  );
+
+  if (matchingItem === undefined) {
+    return {
+      eligible: false,
+      reason: "ORDER_ITEM_PRODUCT_MISMATCH",
+      order
+    };
+  }
+
+  if (!eligibleOrderStatuses.includes(order.status as (typeof eligibleOrderStatuses)[number])) {
+    return {
+      eligible: false,
+      reason: "ORDER_STATUS_NOT_ELIGIBLE",
+      order
+    };
+  }
+
+  const hasEligiblePayment = order.payments.some((payment) =>
+    eligiblePaymentStatuses.includes(payment.status as (typeof eligiblePaymentStatuses)[number])
+  );
+
+  if (!hasEligiblePayment) {
+    return {
+      eligible: false,
+      reason: "PAYMENT_STATUS_NOT_ELIGIBLE",
+      order
+    };
+  }
+
+  return {
+    eligible: true,
+    order
+  };
+};
 
 export const reviewRoutes: FastifyPluginAsync = async (app) => {
   app.get(
@@ -177,7 +293,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
     "/reviews",
     {
       preHandler: [
-        requirePermission(permissions.reviewsWrite),
+        requireAuth,
         withRateLimit({ keyPrefix: "reviews:create", maxRequests: 30 }),
         validateRequest({ body: createReviewBodySchema })
       ]
@@ -189,38 +305,54 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
 
       try {
         const review = await app.prisma.$transaction(async (tx) => {
-          const order = await tx.order.findFirst({
+          const eligibility = await evaluateReviewEligibility(tx, {
+            tenantId,
+            userId,
+            productId: body.productId,
+            orderId: body.orderId,
+            orderItemId: body.orderItemId
+          });
+
+          request.log.info({
+            userId,
+            tenantId,
+            productId: body.productId,
+            orderId: body.orderId,
+            orderItemId: body.orderItemId,
+            eligible: eligibility.eligible,
+            reason: eligibility.reason,
+            matchingOrderId: eligibility.order?.id,
+            orderStatus: eligibility.order?.status,
+            orderItemIds: eligibility.order?.items.map((item) => item.id),
+            orderProductIds: eligibility.order?.items.map((item) => item.productId),
+            paymentStatuses: eligibility.order?.payments.map((payment) => payment.status),
+            paymentProviders: eligibility.order?.payments.map((payment) => payment.provider)
+          }, "Review eligibility evaluated");
+
+          if (!eligibility.eligible) {
+            throw createError(
+              eligibility.reason ?? "REVIEW_DELIVERED_PURCHASE_REQUIRED",
+              "Only verified purchasers with an eligible paid order can review this product.",
+              403
+            );
+          }
+
+          const existingReview = await tx.review.findFirst({
             where: {
               tenantId,
-              id: body.orderId,
               userId,
-              status: "fulfilled",
-              deletedAt: null,
-              payments: {
-                some: {
-                  tenantId,
-                  status: "captured",
-                  deletedAt: null
-                }
-              },
-              items: {
-                some: {
-                  id: body.orderItemId,
-                  productId: body.productId,
-                  deletedAt: null
-                }
-              }
+              orderItemId: body.orderItemId
             },
             select: {
               id: true
             }
           });
 
-          if (order === null) {
+          if (existingReview !== null) {
             throw createError(
-              "REVIEW_DELIVERED_PURCHASE_REQUIRED",
-              "You can review this product only after a paid order containing it has been delivered.",
-              403
+              "REVIEW_ALREADY_EXISTS",
+              "This delivered order item has already been reviewed.",
+              409
             );
           }
 
@@ -287,6 +419,72 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
 
         throw error;
       }
+    }
+  );
+
+  app.get(
+    "/reviews/eligibility",
+    {
+      preHandler: [
+        requireAuth,
+        withRateLimit({ keyPrefix: "reviews:eligibility", maxRequests: 120 }),
+        validateRequest({ query: reviewEligibilityQuerySchema })
+      ]
+    },
+    async (request) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const userId = getAuthenticatedUserId(request);
+      const query = reviewEligibilityQuerySchema.parse(request.query);
+      const eligibility = await evaluateReviewEligibility(app.prisma, {
+        tenantId,
+        userId,
+        productId: query.productId,
+        orderId: query.orderId,
+        orderItemId: query.orderItemId
+      });
+
+      const duplicate = await app.prisma.review.findFirst({
+        where: {
+          tenantId,
+          userId,
+          orderItemId: query.orderItemId
+        },
+        select: {
+          id: true
+        }
+      });
+      const eligible = eligibility.eligible && duplicate === null;
+      const reason = duplicate !== null ? "REVIEW_ALREADY_EXISTS" : eligibility.reason;
+
+      request.log.info({
+        userId,
+        tenantId,
+        productId: query.productId,
+        orderId: query.orderId,
+        orderItemId: query.orderItemId,
+        eligible,
+        reason,
+        matchingOrderId: eligibility.order?.id,
+        orderStatus: eligibility.order?.status,
+        orderItemIds: eligibility.order?.items.map((item) => item.id),
+        orderProductIds: eligibility.order?.items.map((item) => item.productId),
+        paymentStatuses: eligibility.order?.payments.map((payment) => payment.status),
+        paymentProviders: eligibility.order?.payments.map((payment) => payment.provider)
+      }, "Review eligibility checked");
+
+      return {
+        ok: true,
+        data: {
+          eligible,
+          reason,
+          alreadyReviewed: duplicate !== null,
+          message: eligible
+            ? "You can review this product."
+            : duplicate !== null
+              ? "This delivered order item has already been reviewed."
+              : "Only verified purchasers can review this product."
+        }
+      };
     }
   );
 

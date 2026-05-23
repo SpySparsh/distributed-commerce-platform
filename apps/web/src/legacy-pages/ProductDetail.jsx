@@ -30,6 +30,11 @@ export default function ProductDetail() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewMessage, setReviewMessage] = useState('');
   const [reviewFetchMessage, setReviewFetchMessage] = useState('');
+  const [reviewEligibility, setReviewEligibility] = useState({
+    checking: false,
+    eligible: false,
+    message: ''
+  });
 
   const query = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const reviewOrderId = query.get('reviewOrderId');
@@ -72,37 +77,85 @@ export default function ProductDetail() {
     fetchProduct();
   }, [id]);
 
+  const fetchReviews = async (productId) => {
+    if (!productId) {
+      return;
+    }
+
+    try {
+      setReviewFetchMessage('');
+      const res = await axios.get(`/products/${productId}/reviews`, { skipAuth: true });
+      const nextReviews = Array.isArray(res.data.reviews) ? res.data.reviews : [];
+      const nextBreakdown = Array.isArray(res.data.breakdown) ? res.data.breakdown : defaultBreakdown;
+
+      setReviews(nextReviews);
+      setBreakdown(nextBreakdown);
+      setProduct((current) => current === null
+        ? current
+        : {
+            ...current,
+            averageRating: res.data.averageRating ?? current.averageRating ?? 0,
+            reviewCount: res.data.reviewCount ?? current.reviewCount ?? nextReviews.length
+          });
+    } catch (err) {
+      console.error('Review fetch error:', err.response?.data || err.message);
+      setReviews([]);
+      setBreakdown(defaultBreakdown);
+      setReviewFetchMessage('Reviews are temporarily unavailable.');
+    }
+  };
+
   useEffect(() => {
-    const fetchReviews = async () => {
+    fetchReviews(product?.id);
+  }, [product?.id]);
+
+  useEffect(() => {
+    const checkReviewEligibility = async () => {
       if (!product?.id) {
         return;
       }
 
-      try {
-        setReviewFetchMessage('');
-        const res = await axios.get(`/products/${product.id}/reviews`, { skipAuth: true });
-        const nextReviews = Array.isArray(res.data.reviews) ? res.data.reviews : [];
-        const nextBreakdown = Array.isArray(res.data.breakdown) ? res.data.breakdown : defaultBreakdown;
+      if (!user?.email || !reviewOrderId || !reviewOrderItemId) {
+        setReviewEligibility({
+          checking: false,
+          eligible: false,
+          message: user?.email
+            ? 'Reviews are available after purchasing and receiving this product.'
+            : 'Sign in after purchasing and receiving this product to write a verified review.'
+        });
+        return;
+      }
 
-        setReviews(nextReviews);
-        setBreakdown(nextBreakdown);
-        setProduct((current) => current === null
-          ? current
-          : {
-              ...current,
-              averageRating: res.data.averageRating ?? current.averageRating ?? 0,
-              reviewCount: res.data.reviewCount ?? current.reviewCount ?? nextReviews.length
-            });
+      try {
+        setReviewEligibility({ checking: true, eligible: false, message: 'Checking review eligibility...' });
+        const res = await axios.get('/reviews/eligibility', {
+          params: {
+            productId: product.id,
+            orderId: reviewOrderId,
+            orderItemId: reviewOrderItemId
+          }
+        });
+        setReviewEligibility({
+          checking: false,
+          eligible: Boolean(res.data.eligible),
+          message: res.data.message || (
+            res.data.eligible
+              ? 'You can review this product.'
+              : 'Only verified purchasers can review this product.'
+          )
+        });
       } catch (err) {
-        console.error('Review fetch error:', err.response?.data || err.message);
-        setReviews([]);
-        setBreakdown(defaultBreakdown);
-        setReviewFetchMessage('Reviews are temporarily unavailable.');
+        console.error('Review eligibility error:', err.response?.data || err.message);
+        setReviewEligibility({
+          checking: false,
+          eligible: false,
+          message: err.response?.data?.error?.message || 'Only verified purchasers can review this product.'
+        });
       }
     };
 
-    fetchReviews();
-  }, [product?.id]);
+    checkReviewEligibility();
+  }, [product?.id, user?.email, reviewOrderId, reviewOrderItemId]);
 
   const submitReview = async (event) => {
     event.preventDefault();
@@ -132,6 +185,12 @@ export default function ProductDetail() {
       setReviews((current) => createdReview ? [createdReview, ...current] : current);
       setReviewForm({ rating: 5, title: '', comment: '' });
       setReviewMessage('Review submitted. Thank you for sharing feedback.');
+      setReviewEligibility({
+        checking: false,
+        eligible: false,
+        message: 'This delivered order item has already been reviewed.'
+      });
+      await fetchReviews(product.id);
     } catch (err) {
       setReviewMessage(err.response?.data?.error?.message || 'Unable to submit review.');
     } finally {
@@ -150,10 +209,10 @@ export default function ProductDetail() {
 
   if (!product) return <p className="p-6">Loading...</p>;
 
-  const canSubmitVerifiedReview = Boolean(user?.email && reviewOrderId && reviewOrderItemId);
-  const reviewEligibilityMessage = user?.email
+  const canSubmitVerifiedReview = reviewEligibility.eligible && !reviewEligibility.checking;
+  const reviewEligibilityMessage = reviewEligibility.message || (user?.email
     ? 'Reviews are available after purchasing and receiving this product.'
-    : 'Sign in after purchasing and receiving this product to write a verified review.';
+    : 'Sign in after purchasing and receiving this product to write a verified review.');
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
