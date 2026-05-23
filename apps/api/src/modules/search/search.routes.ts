@@ -4,13 +4,17 @@ import { validateRequest, withRateLimit } from "../../http/validate.js";
 import { getAuthenticatedTenantId, requirePermission } from "../auth/auth.middleware.js";
 import { permissions } from "../auth/permissions.js";
 import {
+  adminSearchAnalyticsQuerySchema,
   autocompleteQuerySchema,
   categorySearchQuerySchema,
+  databaseSearchQuerySchema,
   indexProductBodySchema,
   productSearchQuerySchema,
-  rebuildSearchBodySchema
+  rebuildSearchBodySchema,
+  searchClickBodySchema
 } from "./search.schemas.js";
 import { createSearchService } from "./search.service.js";
+import { createDatabaseSearchService } from "./database-search.service.js";
 
 export const searchRoutes: FastifyPluginAsync = async (app) => {
   const searchClient = new MeilisearchHttpClient({
@@ -19,6 +23,47 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     indexPrefix: app.config.MEILISEARCH_INDEX_PREFIX
   });
   const service = createSearchService(searchClient, app.queues);
+  const databaseSearch = createDatabaseSearchService(app.prisma);
+
+  app.get(
+    "/",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "search:database", maxRequests: 300 }),
+        validateRequest({ query: databaseSearchQuerySchema })
+      ]
+    },
+    async (request) => {
+      const query = databaseSearchQuerySchema.parse(request.query);
+      const userId = request.user?.id;
+      const result = await databaseSearch.searchProducts(query, userId);
+
+      return {
+        ok: true,
+        data: result
+      };
+    }
+  );
+
+  app.post(
+    "/click",
+    {
+      preHandler: [
+        withRateLimit({ keyPrefix: "search:click", maxRequests: 600 }),
+        validateRequest({ body: searchClickBodySchema })
+      ]
+    },
+    async (request, reply) => {
+      const body = searchClickBodySchema.parse(request.body);
+      await databaseSearch.recordClick(body, request.user?.id);
+      await reply.status(202).send({
+        ok: true,
+        data: {
+          accepted: true
+        }
+      });
+    }
+  );
 
   app.get(
     "/products",
@@ -49,13 +94,33 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const query = autocompleteQuerySchema.parse(request.query);
-      const suggestions = await service.autocomplete(query);
+      const suggestions = await databaseSearch.autocomplete(query.tenantId, query.q, query.limit);
 
       return {
         ok: true,
         data: {
           suggestions
         }
+      };
+    }
+  );
+
+  app.get(
+    "/admin/analytics",
+    {
+      preHandler: [
+        requirePermission(permissions.searchAdmin),
+        withRateLimit({ keyPrefix: "search:analytics", maxRequests: 60 }),
+        validateRequest({ query: adminSearchAnalyticsQuerySchema })
+      ]
+    },
+    async (request) => {
+      const query = adminSearchAnalyticsQuerySchema.parse(request.query);
+      const analytics = await databaseSearch.getAnalytics(query);
+
+      return {
+        ok: true,
+        data: analytics
       };
     }
   );

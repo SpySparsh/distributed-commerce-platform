@@ -134,6 +134,7 @@ model Tenant {
   orderEvents           OrderEvent[]
   payments              Payment[]
   reviews               Review[]
+  searchQueryLogs       SearchQueryLog[]
   paymentWebhookEvents  PaymentWebhookEvent[]
   domainEvents          DomainEventLog[]
   inventoryItems        InventoryItem[]
@@ -162,6 +163,7 @@ model User {
   carts     Cart[]
   orders    Order[]
   reviews   Review[]
+  searchQueryLogs SearchQueryLog[]
   auditLogs AuditLog[] @relation("ActorAuditLogs")
 
   @@unique([tenantId, email])
@@ -572,6 +574,27 @@ model Review {
   @@index([tenantId, productId, status, createdAt])
   @@index([tenantId, userId, createdAt])
   @@index([tenantId, orderId])
+}
+
+model SearchQueryLog {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @db.Uuid
+  userId           String?   @db.Uuid
+  query            String
+  normalizedQuery  String
+  resultCount      Int       @default(0)
+  clickedProductId String?   @db.Uuid
+  failed           Boolean   @default(false)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(6)
+  deletedAt        DateTime? @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, normalizedQuery, createdAt])
+  @@index([tenantId, failed, createdAt])
+  @@index([tenantId, clickedProductId, createdAt])
 }
 
 model Payment {

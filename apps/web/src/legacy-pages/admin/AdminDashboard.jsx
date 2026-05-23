@@ -58,6 +58,10 @@ export default function AdminDashboard() {
         <Link to="/admin/reviews" className="bg-white shadow p-4 rounded hover:bg-blue-50">
           <h2 className="text-lg font-semibold">Manage Reviews</h2>
         </Link>
+
+        <Link to="/admin/search-analytics" className="bg-white shadow p-4 rounded hover:bg-blue-50">
+          <h2 className="text-lg font-semibold">Search Analytics</h2>
+        </Link>
       </div>
 
       {/* Stats Summary */}
