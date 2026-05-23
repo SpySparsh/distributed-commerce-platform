@@ -24,6 +24,9 @@ interface OrderItemRow {
   readonly unitPrice: { toString(): string };
   readonly totalAmount: { toString(): string };
   readonly currency: string;
+  readonly reviews?: readonly {
+    readonly id: string;
+  }[];
 }
 
 interface CartItemWithReservationsRow {
@@ -119,7 +122,14 @@ interface OrderTransactionClient {
 const orderInclude = {
   items: {
     where: { deletedAt: null },
-    orderBy: { createdAt: "asc" }
+    orderBy: { createdAt: "asc" },
+    include: {
+      reviews: {
+        select: {
+          id: true
+        }
+      }
+    }
   }
 } satisfies Prisma.OrderInclude;
 
@@ -169,7 +179,9 @@ const toOrderDto = (row: OrderRow): OrderDto => ({
     quantity: item.quantity,
     unitPrice: item.unitPrice.toString(),
     totalAmount: item.totalAmount.toString(),
-    currency: item.currency
+    currency: item.currency,
+    reviewed: (item.reviews?.length ?? 0) > 0,
+    ...(item.reviews?.[0]?.id === undefined ? {} : { reviewId: item.reviews[0].id })
   }))
 });
 

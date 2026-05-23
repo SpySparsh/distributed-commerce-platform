@@ -9,6 +9,7 @@ import { inventoryRoutes } from "../modules/inventory/inventory.routes.js";
 import { orderRoutes } from "../modules/orders/order.routes.js";
 import { paymentRoutes } from "../modules/payments/payment.routes.js";
 import { productRoutes } from "../modules/products/product.routes.js";
+import { reviewRoutes } from "../modules/reviews/review.routes.js";
 import { searchRoutes } from "../modules/search/search.routes.js";
 import { tenantRoutes } from "../modules/tenants/tenant.routes.js";
 import { createAppRepositories } from "../repositories.js";
@@ -32,6 +33,7 @@ export const registerRoutes = async (app: FastifyInstance): Promise<void> => {
     prefix: "/payments",
     repository: repositories.payment
   });
+  await app.register(reviewRoutes);
   await app.register(searchRoutes, { prefix: "/search" });
   await app.register(tenantRoutes, { prefix: "/tenants" });
   await app.register(healthRoutes, { prefix: "/health" });

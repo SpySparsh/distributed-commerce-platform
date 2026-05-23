@@ -8,6 +8,9 @@ export const permissions = {
   ordersWrite: "orders:write",
   paymentsRead: "payments:read",
   paymentsWrite: "payments:write",
+  reviewsRead: "reviews:read",
+  reviewsWrite: "reviews:write",
+  reviewsModerate: "reviews:moderate",
   eventsPublish: "events:publish",
   searchAdmin: "search:admin"
 } as const;

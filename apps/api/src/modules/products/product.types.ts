@@ -26,6 +26,8 @@ export interface ProductListItemDto {
   readonly name: string;
   readonly description?: string;
   readonly status: string;
+  readonly averageRating: string;
+  readonly reviewCount: number;
   readonly primaryImage?: ProductImageDto;
   readonly minPrice?: string;
   readonly currency?: string;

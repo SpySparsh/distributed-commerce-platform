@@ -2,15 +2,30 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import axios from '../api/axios';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function ProductDetail() {
   const { addToCart } = useCart();
+  const { user } = useAuth();
   const { id } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
   const [qty, setQty] = useState(1);
   const [buyingNow, setBuyingNow] = useState(false);
-  const reviews = [];
+  const [reviews, setReviews] = useState([]);
+  const [breakdown, setBreakdown] = useState([]);
+  const [reviewForm, setReviewForm] = useState({
+    rating: 5,
+    title: '',
+    comment: ''
+  });
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState('');
+
+  const query = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const reviewOrderId = query.get('reviewOrderId');
+  const reviewOrderItemId = query.get('reviewOrderItemId');
+
   const handleBuyNow = async () => {
     if (!product) {
       return;
@@ -44,6 +59,58 @@ export default function ProductDetail() {
     fetchProduct();
   }, [id]);
 
+  useEffect(() => {
+    const fetchReviews = async () => {
+      if (!product?.id) {
+        return;
+      }
+
+      try {
+        const res = await axios.get(`/products/${product.id}/reviews`);
+        setReviews(res.data.reviews || []);
+        setBreakdown(res.data.breakdown || []);
+      } catch (err) {
+        console.error('Review fetch error:', err.response?.data || err.message);
+      }
+    };
+
+    fetchReviews();
+  }, [product?.id]);
+
+  const submitReview = async (event) => {
+    event.preventDefault();
+
+    if (!user?.email) {
+      alert('Please login before writing a review.');
+      return;
+    }
+
+    if (!reviewOrderId || !reviewOrderItemId) {
+      setReviewMessage('Reviews are available from delivered order items.');
+      return;
+    }
+
+    try {
+      setReviewSubmitting(true);
+      setReviewMessage('');
+      const res = await axios.post('/reviews', {
+        productId: product.id,
+        orderId: reviewOrderId,
+        orderItemId: reviewOrderItemId,
+        rating: reviewForm.rating,
+        title: reviewForm.title,
+        comment: reviewForm.comment
+      });
+      setReviews((current) => [res.data.review, ...current]);
+      setReviewForm({ rating: 5, title: '', comment: '' });
+      setReviewMessage('Review submitted. Thank you for sharing feedback.');
+    } catch (err) {
+      setReviewMessage(err.response?.data?.error?.message || 'Unable to submit review.');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
   if (!product) return <p className="p-6">Loading...</p>;
 
   return (
@@ -61,6 +128,11 @@ export default function ProductDetail() {
         {/* Right: Product Info */}
         <div>
           <h1 className="text-3xl font-bold mb-2">{product.name}</h1>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-yellow-500">{'★'.repeat(Math.round(Number(product.averageRating || product.rating || 0))).padEnd(5, '☆')}</span>
+            <span className="font-medium">{Number(product.averageRating || 0).toFixed(1)} / 5</span>
+            <span className="text-gray-500">({product.reviewCount || 0} reviews)</span>
+          </div>
 
           <div className="text-xl font-semibold text-green-600 mb-4">
             ₹{product.price}
@@ -111,14 +183,67 @@ export default function ProductDetail() {
       {/* Reviews Section */}
       <div className="bg-white shadow-md rounded p-6">
         <h2 className="text-xl font-semibold mb-4">Customer Reviews</h2>
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-5 gap-2 text-sm">
+          {breakdown.map((item) => (
+            <div key={item.rating} className="rounded border border-gray-200 px-3 py-2">
+              <span className="text-yellow-500">{item.rating}★</span>
+              <span className="ml-2 text-gray-600">{item.count}</span>
+            </div>
+          ))}
+        </div>
+        {reviewOrderId && reviewOrderItemId && (
+          <form onSubmit={submitReview} className="mb-6 rounded border border-blue-100 bg-blue-50 p-4 space-y-3">
+            <h3 className="font-semibold">Write a verified purchase review</h3>
+            {reviewMessage && <p className="text-sm text-blue-700">{reviewMessage}</p>}
+            <label className="block text-sm font-medium">
+              Rating
+              <select
+                value={reviewForm.rating}
+                onChange={(event) => setReviewForm({ ...reviewForm, rating: Number(event.target.value) })}
+                className="mt-1 block w-full rounded border px-3 py-2"
+              >
+                {[5, 4, 3, 2, 1].map((rating) => (
+                  <option key={rating} value={rating}>{rating} stars</option>
+                ))}
+              </select>
+            </label>
+            <input
+              value={reviewForm.title}
+              onChange={(event) => setReviewForm({ ...reviewForm, title: event.target.value })}
+              required
+              maxLength={160}
+              placeholder="Review title"
+              className="w-full rounded border px-3 py-2"
+            />
+            <textarea
+              value={reviewForm.comment}
+              onChange={(event) => setReviewForm({ ...reviewForm, comment: event.target.value })}
+              required
+              maxLength={2000}
+              placeholder="Tell other shoppers about the product"
+              className="w-full rounded border px-3 py-2 min-h-28"
+            />
+            <button type="submit" className="btn-primary" disabled={reviewSubmitting}>
+              {reviewSubmitting ? 'Submitting...' : 'Submit Review'}
+            </button>
+          </form>
+        )}
         {reviews.length === 0 ? (
           <p className="text-gray-500">No reviews yet.</p>
         ) : (
           <div className="space-y-4">
-            {reviews.map((review, i) => (
-              <div key={i} className="border-t pt-4">
-                <p className="font-semibold">{review.name}</p>
-                <p className="text-yellow-500">Rating: {review.rating} / 5</p>
+            {reviews.map((review) => (
+              <div key={review.id} className="border-t pt-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold">{review.reviewerName}</p>
+                  {review.verifiedPurchase && (
+                    <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                      Verified Purchase
+                    </span>
+                  )}
+                </div>
+                <p className="text-yellow-500">{'★'.repeat(review.rating).padEnd(5, '☆')}</p>
+                <p className="font-medium">{review.title}</p>
                 <p className="text-gray-700">{review.comment}</p>
               </div>
             ))}

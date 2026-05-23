@@ -701,7 +701,14 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           products: order.items.map((item) => ({
             name: item.name,
             quantity: item.quantity,
-            totalAmount: item.totalAmount.toString()
+            totalAmount: item.totalAmount.toString(),
+            reviewUrl: `${app.config.FRONTEND_URL.replace(/\/$/, "")}/product/${item.productId}?reviewOrderId=${order.id}&reviewOrderItemId=${item.id}`
+          })),
+          reviewLinks: order.items.map((item) => ({
+            productId: item.productId,
+            orderItemId: item.id,
+            name: item.name,
+            url: `${app.config.FRONTEND_URL.replace(/\/$/, "")}/product/${item.productId}?reviewOrderId=${order.id}&reviewOrderItemId=${item.id}`
           })),
           deliveredAt: order.deliveredAt?.toISOString() ?? now.toISOString(),
           message: "Thank you for shopping with us."

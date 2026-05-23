@@ -45,6 +45,8 @@ interface ProductRow {
   readonly name: string;
   readonly description: string | null;
   readonly status: string;
+  readonly averageRating: { toString(): string };
+  readonly reviewCount: number;
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly images: readonly ProductImageRow[];
@@ -69,6 +71,8 @@ const productSelect = {
   name: true,
   description: true,
   status: true,
+  averageRating: true,
+  reviewCount: true,
   createdAt: true,
   updatedAt: true,
   images: {
@@ -147,6 +151,8 @@ const toListItem = (product: ProductRow): ProductListItemDto => {
     name: product.name,
     ...(product.description === null ? {} : { description: product.description }),
     status: product.status,
+    averageRating: product.averageRating.toString(),
+    reviewCount: product.reviewCount,
     ...(primaryImage === undefined ? {} : { primaryImage: toImageDto(primaryImage) }),
     ...(firstVariant === undefined ? {} : { minPrice: firstVariant.price, currency: firstVariant.currency }),
     totalAvailable: variants.reduce((total, variant) => total + variant.availableQuantity, 0),
@@ -286,9 +292,12 @@ export class PrismaProductRepository implements ProductRepository {
     const productBase = await this.prisma.product.findFirst({
       where: {
         tenantId,
-        slug,
         status: "active",
-        deletedAt: null
+        deletedAt: null,
+        OR: [
+          { slug },
+          { id: slug }
+        ]
       },
       select: {
         id: true

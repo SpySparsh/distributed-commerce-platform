@@ -13,7 +13,9 @@ const normalizeProduct = (product) => ({
   sku: product.sku || product.variants?.[0]?.sku,
   category: product.category || product.categoryId,
   countInStock: product.countInStock ?? product.totalAvailable ?? product.variants?.[0]?.availableQuantity ?? 0,
-  rating: product.rating ?? 0
+  rating: product.rating ?? product.averageRating ?? 0,
+  averageRating: product.averageRating ?? product.rating ?? "0.00",
+  reviewCount: product.reviewCount ?? 0
 });
 
 const normalizeOrder = (order) => ({

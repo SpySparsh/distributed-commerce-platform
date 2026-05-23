@@ -21,6 +21,8 @@ export interface OrderItemDto {
   readonly unitPrice: string;
   readonly totalAmount: string;
   readonly currency: string;
+  readonly reviewed?: boolean;
+  readonly reviewId?: string;
 }
 
 export interface OrderDto {

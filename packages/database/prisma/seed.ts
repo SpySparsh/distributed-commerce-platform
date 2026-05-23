@@ -38,6 +38,9 @@ const permissions = [
   "orders:write",
   "payments:read",
   "payments:write",
+  "reviews:read",
+  "reviews:write",
+  "reviews:moderate",
   "events:publish",
   "search:admin"
 ] as const;
@@ -47,6 +50,8 @@ const customerPermissions = [
   "carts:write",
   "checkout:write",
   "orders:read",
+  "reviews:read",
+  "reviews:write",
   "payments:read"
 ] as const;
 

@@ -113,6 +113,8 @@ Detailed doc: [AUTH_ARCHITECTURE.md](./AUTH_ARCHITECTURE.md)
 
 Products are modeled with categories, variants, images, inventory, and SEO-friendly slugs. Search is handled by Meilisearch rather than SQL `LIKE` queries. Product documents are denormalized for fast filtering and typo-tolerant discovery.
 
+Product detail pages also surface verified-purchase reviews, average rating, review count, and star breakdowns. Reviews can only be created from delivered, paid order items, so anonymous or unfulfilled-order reviews are rejected.
+
 Search ranking prioritizes textual relevance first, then business signals:
 
 - popularity
@@ -157,6 +159,8 @@ Stripe Checkout is the sole online payment provider. Cards, UPI, and wallet avai
 COD orders are created as pending and become paid only when an admin uses Mark Paid. Admins can also mark paid orders delivered, which records delivery time and triggers delivery confirmation email. Revenue metrics count paid payments only, not pending, failed, or cancelled orders.
 
 Buy Now is isolated from the cart lifecycle. It creates a standalone checkout session and must not mutate the active cart.
+
+Delivered orders unlock verified-purchase review actions for purchased products. The delivered-order email includes review links, and product rating aggregates are recalculated transactionally when reviews are created, deleted, or moderated.
 
 Detailed docs: [ORDER_ARCHITECTURE.md](./ORDER_ARCHITECTURE.md), [PAYMENT_ARCHITECTURE.md](./PAYMENT_ARCHITECTURE.md)
 
@@ -209,7 +213,7 @@ Async workloads include:
 
 - order confirmation emails
 - payment success emails
-- delivery confirmation emails
+- delivery confirmation emails with review CTAs
 - invoice generation
 - analytics
 - payment retries
@@ -247,6 +251,7 @@ The PostgreSQL schema is tenant-scoped and normalized around ecommerce boundarie
 - inventory items and reservations
 - orders and order events
 - payments, provider references, paid timestamps, and webhook inbox
+- verified-purchase reviews and denormalized product rating aggregates
 - audit logs
 - domain event log
 

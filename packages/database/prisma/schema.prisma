@@ -75,6 +75,11 @@ enum PaymentProvider {
   manual
 }
 
+enum ReviewStatus {
+  approved
+  rejected
+}
+
 enum InventoryReservationStatus {
   active
   consumed
@@ -125,6 +130,7 @@ model Tenant {
   orders                Order[]
   orderEvents           OrderEvent[]
   payments              Payment[]
+  reviews               Review[]
   paymentWebhookEvents  PaymentWebhookEvent[]
   domainEvents          DomainEventLog[]
   inventoryItems        InventoryItem[]
@@ -152,6 +158,7 @@ model User {
   userRoles UserRole[]
   carts     Cart[]
   orders    Order[]
+  reviews   Review[]
   auditLogs AuditLog[] @relation("ActorAuditLogs")
 
   @@unique([tenantId, email])
@@ -275,6 +282,8 @@ model Product {
   name        String
   description String?
   status      ProductStatus @default(draft)
+  averageRating Decimal       @default(0) @db.Decimal(3, 2)
+  reviewCount Int            @default(0)
   createdAt   DateTime      @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime      @updatedAt @db.Timestamptz(6)
   deletedAt   DateTime?     @db.Timestamptz(6)
@@ -285,6 +294,7 @@ model Product {
   images   ProductImage[]
   cartItems CartItem[]
   orderItems OrderItem[]
+  reviews  Review[]
 
   @@unique([tenantId, sku])
   @@unique([tenantId, slug])
@@ -473,6 +483,7 @@ model Order {
   items    OrderItem[]
   events   OrderEvent[]
   payments Payment[]
+  reviews  Review[]
 
   @@unique([tenantId, orderNumber])
   @@unique([tenantId, invoiceNumber])
@@ -526,9 +537,37 @@ model OrderItem {
   product      Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
   variant      ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Restrict)
   reservations InventoryReservation[]
+  reviews      Review[]
 
   @@index([tenantId, orderId])
   @@index([tenantId, variantId, createdAt])
+}
+
+model Review {
+  id               String       @id @default(uuid()) @db.Uuid
+  tenantId         String       @db.Uuid
+  userId           String       @db.Uuid
+  productId        String       @db.Uuid
+  orderId          String       @db.Uuid
+  orderItemId      String       @db.Uuid
+  rating           Int
+  title            String
+  comment          String
+  verifiedPurchase Boolean      @default(true)
+  status           ReviewStatus @default(approved)
+  createdAt        DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, orderItemId])
+  @@index([tenantId, productId, status, createdAt])
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, orderId])
 }
 
 model Payment {
