@@ -4,6 +4,13 @@ import axios from '../api/axios';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 
+const defaultBreakdown = [5, 4, 3, 2, 1].map((rating) => ({ rating, count: 0 }));
+
+const renderStars = (rating) => {
+  const safeRating = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+  return `${'★'.repeat(safeRating)}${'☆'.repeat(5 - safeRating)}`;
+};
+
 export default function ProductDetail() {
   const { addToCart } = useCart();
   const { user } = useAuth();
@@ -13,7 +20,7 @@ export default function ProductDetail() {
   const [qty, setQty] = useState(1);
   const [buyingNow, setBuyingNow] = useState(false);
   const [reviews, setReviews] = useState([]);
-  const [breakdown, setBreakdown] = useState([]);
+  const [breakdown, setBreakdown] = useState(defaultBreakdown);
   const [reviewForm, setReviewForm] = useState({
     rating: 5,
     title: '',
@@ -21,6 +28,7 @@ export default function ProductDetail() {
   });
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewMessage, setReviewMessage] = useState('');
+  const [reviewFetchMessage, setReviewFetchMessage] = useState('');
 
   const query = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const reviewOrderId = query.get('reviewOrderId');
@@ -45,7 +53,6 @@ export default function ProductDetail() {
     }
   };
 
-
   useEffect(() => {
     const fetchProduct = async () => {
       try {
@@ -66,11 +73,25 @@ export default function ProductDetail() {
       }
 
       try {
-        const res = await axios.get(`/products/${product.id}/reviews`);
-        setReviews(res.data.reviews || []);
-        setBreakdown(res.data.breakdown || []);
+        setReviewFetchMessage('');
+        const res = await axios.get(`/products/${product.id}/reviews`, { skipAuth: true });
+        const nextReviews = Array.isArray(res.data.reviews) ? res.data.reviews : [];
+        const nextBreakdown = Array.isArray(res.data.breakdown) ? res.data.breakdown : defaultBreakdown;
+
+        setReviews(nextReviews);
+        setBreakdown(nextBreakdown);
+        setProduct((current) => current === null
+          ? current
+          : {
+              ...current,
+              averageRating: res.data.averageRating ?? current.averageRating ?? 0,
+              reviewCount: res.data.reviewCount ?? current.reviewCount ?? nextReviews.length
+            });
       } catch (err) {
         console.error('Review fetch error:', err.response?.data || err.message);
+        setReviews([]);
+        setBreakdown(defaultBreakdown);
+        setReviewFetchMessage('Reviews are temporarily unavailable.');
       }
     };
 
@@ -81,12 +102,12 @@ export default function ProductDetail() {
     event.preventDefault();
 
     if (!user?.email) {
-      alert('Please login before writing a review.');
+      setReviewMessage('Please login before writing a review.');
       return;
     }
 
     if (!reviewOrderId || !reviewOrderItemId) {
-      setReviewMessage('Reviews are available from delivered order items.');
+      setReviewMessage('Reviews are available after purchasing and receiving this product.');
       return;
     }
 
@@ -101,7 +122,8 @@ export default function ProductDetail() {
         title: reviewForm.title,
         comment: reviewForm.comment
       });
-      setReviews((current) => [res.data.review, ...current]);
+      const createdReview = res.data.review;
+      setReviews((current) => createdReview ? [createdReview, ...current] : current);
       setReviewForm({ rating: 5, title: '', comment: '' });
       setReviewMessage('Review submitted. Thank you for sharing feedback.');
     } catch (err) {
@@ -113,10 +135,14 @@ export default function ProductDetail() {
 
   if (!product) return <p className="p-6">Loading...</p>;
 
+  const canSubmitVerifiedReview = Boolean(user?.email && reviewOrderId && reviewOrderItemId);
+  const reviewEligibilityMessage = user?.email
+    ? 'Reviews are available after purchasing and receiving this product.'
+    : 'Sign in after purchasing and receiving this product to write a verified review.';
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="grid md:grid-cols-2 gap-6 mb-8">
-        {/* Left: Product Image */}
         <div className="bg-white rounded shadow-md">
           <img
             src={product.image || '/assets/product-placeholder.svg'}
@@ -125,17 +151,16 @@ export default function ProductDetail() {
           />
         </div>
 
-        {/* Right: Product Info */}
         <div>
           <h1 className="text-3xl font-bold mb-2">{product.name}</h1>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-yellow-500">{'★'.repeat(Math.round(Number(product.averageRating || product.rating || 0))).padEnd(5, '☆')}</span>
+            <span className="text-yellow-500">{renderStars(product.averageRating || product.rating || 0)}</span>
             <span className="font-medium">{Number(product.averageRating || 0).toFixed(1)} / 5</span>
             <span className="text-gray-500">({product.reviewCount || 0} reviews)</span>
           </div>
 
           <div className="text-xl font-semibold text-green-600 mb-4">
-            ₹{product.price}
+            Rs. {product.price}
           </div>
 
           <div className="mb-4">
@@ -149,8 +174,8 @@ export default function ProductDetail() {
               onChange={(e) => setQty(Number(e.target.value))}
               className="border px-2 py-1 rounded"
             >
-              {Array.from({ length: product.countInStock }, (_, i) => i + 1).map((x) => (
-                <option key={x} value={x}>{x}</option>
+              {Array.from({ length: product.countInStock }, (_, index) => index + 1).map((quantity) => (
+                <option key={quantity} value={quantity}>{quantity}</option>
               ))}
             </select>
             <button
@@ -160,10 +185,7 @@ export default function ProductDetail() {
             >
               {buyingNow ? 'Preparing Checkout...' : 'Buy Now'}
             </button>
-
-
           </div>
-
 
           <button
             className="btn-primary w-full"
@@ -174,24 +196,40 @@ export default function ProductDetail() {
           </button>
         </div>
       </div>
+
       <p className="text-gray-700 mb-4 whitespace-pre-wrap font-mono leading-relaxed tracking-wide bg-white/70 p-3 rounded-md border border-gray-200 shadow-sm">
-  {product.description}
-</p>
+        {product.description}
+      </p>
 
-
-
-      {/* Reviews Section */}
       <div className="bg-white shadow-md rounded p-6">
         <h2 className="text-xl font-semibold mb-4">Customer Reviews</h2>
+        <div className="mb-4">
+          <p className="text-sm text-gray-600">
+            {product.reviewCount || 0} reviews - Average {Number(product.averageRating || 0).toFixed(1)} / 5
+          </p>
+        </div>
         <div className="mb-4 grid grid-cols-1 sm:grid-cols-5 gap-2 text-sm">
-          {breakdown.map((item) => (
+          {(breakdown.length ? breakdown : defaultBreakdown).map((item) => (
             <div key={item.rating} className="rounded border border-gray-200 px-3 py-2">
-              <span className="text-yellow-500">{item.rating}★</span>
+              <span className="text-yellow-500">{item.rating} star</span>
               <span className="ml-2 text-gray-600">{item.count}</span>
             </div>
           ))}
         </div>
-        {reviewOrderId && reviewOrderItemId && (
+
+        {reviewFetchMessage && (
+          <p className="mb-4 rounded border border-yellow-100 bg-yellow-50 px-3 py-2 text-sm text-yellow-700">
+            {reviewFetchMessage}
+          </p>
+        )}
+
+        {!canSubmitVerifiedReview && (
+          <p className="mb-4 rounded border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+            {reviewEligibilityMessage}
+          </p>
+        )}
+
+        {canSubmitVerifiedReview && (
           <form onSubmit={submitReview} className="mb-6 rounded border border-blue-100 bg-blue-50 p-4 space-y-3">
             <h3 className="font-semibold">Write a verified purchase review</h3>
             {reviewMessage && <p className="text-sm text-blue-700">{reviewMessage}</p>}
@@ -228,6 +266,7 @@ export default function ProductDetail() {
             </button>
           </form>
         )}
+
         {reviews.length === 0 ? (
           <p className="text-gray-500">No reviews yet.</p>
         ) : (
@@ -235,16 +274,21 @@ export default function ProductDetail() {
             {reviews.map((review) => (
               <div key={review.id} className="border-t pt-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold">{review.reviewerName}</p>
+                  <p className="font-semibold">{review.reviewerName || 'Verified customer'}</p>
                   {review.verifiedPurchase && (
                     <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                       Verified Purchase
                     </span>
                   )}
                 </div>
-                <p className="text-yellow-500">{'★'.repeat(review.rating).padEnd(5, '☆')}</p>
+                <p className="text-yellow-500">{renderStars(review.rating)}</p>
                 <p className="font-medium">{review.title}</p>
                 <p className="text-gray-700">{review.comment}</p>
+                {review.createdAt && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    {new Date(review.createdAt).toLocaleDateString()}
+                  </p>
+                )}
               </div>
             ))}
           </div>

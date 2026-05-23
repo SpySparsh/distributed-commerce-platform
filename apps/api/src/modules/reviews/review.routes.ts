@@ -113,7 +113,18 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       const params = productReviewsParamsSchema.parse(request.params);
       const query = productReviewsQuerySchema.parse(request.query);
-      const [reviews, breakdown] = await Promise.all([
+      const [product, reviews, breakdown] = await Promise.all([
+        app.prisma.product.findFirst({
+          where: {
+            tenantId: query.tenantId,
+            id: params.id,
+            deletedAt: null
+          },
+          select: {
+            averageRating: true,
+            reviewCount: true
+          }
+        }),
         app.prisma.review.findMany({
           where: {
             tenantId: query.tenantId,
@@ -150,6 +161,8 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
       return {
         ok: true,
         data: {
+          averageRating: product?.averageRating.toString() ?? "0.00",
+          reviewCount: product?.reviewCount ?? 0,
           reviews: reviews.map(toReviewDto),
           breakdown: [5, 4, 3, 2, 1].map((rating) => ({
             rating,

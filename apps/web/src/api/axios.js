@@ -111,7 +111,7 @@ instance.interceptors.request.use(async (config) => {
   const token = localStorage.getItem('token');
   const csrfToken = localStorage.getItem('csrfToken');
 
-  if (token && !isAuthEndpoint(config.url) && config.headers.Authorization === undefined) {
+  if (token && !config.skipAuth && !isAuthEndpoint(config.url) && config.headers.Authorization === undefined) {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
