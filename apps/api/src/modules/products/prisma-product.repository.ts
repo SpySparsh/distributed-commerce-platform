@@ -113,6 +113,10 @@ const productBaseSelect = {
   createdAt: true
 } satisfies Prisma.ProductSelect;
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isUuid = (value: string): boolean => uuidPattern.test(value);
+
 const toImageDto = (image: ProductImageRow): ProductImageDto => ({
   id: image.id,
   url: image.url,
@@ -289,15 +293,16 @@ export class PrismaProductRepository implements ProductRepository {
   }
 
   async findProductBySlug(tenantId: string, slug: string): Promise<ProductDetailDto | undefined> {
+    const identityWhere = isUuid(slug)
+      ? { id: slug }
+      : { slug };
+
     const productBase = await this.prisma.product.findFirst({
       where: {
         tenantId,
         status: "active",
         deletedAt: null,
-        OR: [
-          { slug },
-          { id: slug }
-        ]
+        ...identityWhere
       },
       select: {
         id: true

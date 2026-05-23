@@ -165,11 +165,15 @@ export const CartProvider = ({ children }) => {
   };
 
   const resolveProductForCart = async (product) => {
+    if (!product || (!product._id && !product.id && !product.slug)) {
+      throw new Error('Cannot add an invalid product to cart.');
+    }
+
     if (product.variantId && product._id) {
       return product;
     }
 
-    const lookupKey = product.slug || product._id;
+    const lookupKey = product.slug || product._id || product.id;
     const res = await axios.get(`/products/${lookupKey}`);
     const detail = res.data;
     const variant = detail.variants?.[0];

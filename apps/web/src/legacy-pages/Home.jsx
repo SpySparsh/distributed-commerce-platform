@@ -34,9 +34,12 @@ export default function Home() {
       <h1 className="text-2xl font-bold mb-6">Recently Added Products</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1  sm:gap-6 px-1 md:px-4">
-        {products.map((product) => (
-          <div key={product._id} className="bg-white border border-gray-300 rounded-lg shadow-md hover:shadow-2xl transition duration-300">
-            <Link to={`/product/${product.slug || product._id}`} className="block p-4 hover:bg-gray-100 rounded-t-lg">
+        {products.filter((product) => product?.slug || product?._id || product?.id).map((product) => {
+          const productKey = product.slug || product._id || product.id;
+
+          return (
+          <div key={product._id || product.id || productKey} className="bg-white border border-gray-300 rounded-lg shadow-md hover:shadow-2xl transition duration-300">
+            <Link to={`/product/${productKey}`} className="block p-4 hover:bg-gray-100 rounded-t-lg">
               <img
                 src={product.image || '/assets/product-placeholder.svg'}
                 alt={product.name}
@@ -52,14 +55,15 @@ export default function Home() {
 
             <div className="p-4 pt-0">
               <button
-                onClick={() => addToCart(product)}
+                onClick={() => productKey && addToCart(product)}
                 className="btn-primary w-full"
               >
                 Add to Cart
               </button>
             </div>
           </div>
-        ))}
+        );
+        })}
       </div>
       <h1 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-6">Shop by Category</h1>
 

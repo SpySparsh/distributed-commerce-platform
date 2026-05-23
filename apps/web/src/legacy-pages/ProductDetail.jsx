@@ -17,6 +17,7 @@ export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
+  const [productError, setProductError] = useState('');
   const [qty, setQty] = useState(1);
   const [buyingNow, setBuyingNow] = useState(false);
   const [reviews, setReviews] = useState([]);
@@ -56,10 +57,15 @@ export default function ProductDetail() {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
+        setProductError('');
         const res = await axios.get(`/products/${id}`);
         setProduct(res.data);
       } catch (err) {
         console.error('Product fetch error:', err.message);
+        setProduct(null);
+        setProductError(err.response?.status === 404
+          ? 'Product not found.'
+          : 'Unable to load this product right now.');
       }
     };
 
@@ -132,6 +138,15 @@ export default function ProductDetail() {
       setReviewSubmitting(false);
     }
   };
+
+  if (productError) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <h1 className="text-2xl font-bold mb-2">Product unavailable</h1>
+        <p className="text-gray-600">{productError}</p>
+      </div>
+    );
+  }
 
   if (!product) return <p className="p-6">Loading...</p>;
 

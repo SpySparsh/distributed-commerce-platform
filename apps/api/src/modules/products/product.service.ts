@@ -24,12 +24,7 @@ export const createProductService = (
       cacheKeys.productBySlug({ tenantId, slug }),
       async () => {
         const product = await repository.findProductBySlug(tenantId, slug);
-
-        if (product === undefined) {
-          throw new Error("Product not found");
-        }
-
-        return product;
+        return product ?? null;
       },
       {
         freshSeconds: 60,
@@ -37,7 +32,7 @@ export const createProductService = (
       }
     );
 
-    return cached.status === "miss" ? undefined : cached.value;
+    return cached.status === "miss" || cached.value === null ? undefined : cached.value;
   },
 
   async getCategoryTree(tenantId) {

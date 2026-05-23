@@ -46,7 +46,7 @@ export default function ProductCarousel({ category }) {
 
   const scrollRight = (auto = false) => {
     const container = carouselRef.current;
-    if (!container || products.length === 0) return;
+    if (!container || validProducts.length === 0) return;
 
     const maxScrollLeft = container.scrollWidth / 2;
 
@@ -58,7 +58,8 @@ export default function ProductCarousel({ category }) {
   };
 
   // Clone the products to simulate infinite loop
-  const loopedProducts = [...products, ...products];
+  const validProducts = products.filter((product) => product?.slug || product?._id || product?.id);
+  const loopedProducts = [...validProducts, ...validProducts];
 
   return (
   <div className="my-8 px-0 sm:px-4">
@@ -89,9 +90,12 @@ export default function ProductCarousel({ category }) {
         onMouseEnter={stopAutoScroll}
         onMouseLeave={startAutoScroll}
       >
-        {loopedProducts.map((p, index) => (
+        {loopedProducts.map((p, index) => {
+          const productKey = p.slug || p._id || p.id;
+
+          return (
           <Link
-          to={`/product/${p.slug || p._id}`}
+          to={`/product/${productKey}`}
           key={index}
           className="w-[23%] sm:w-[30%] md:w-[22%] lg:w-[18%] flex-shrink-0 bg-white rounded-lg shadow hover:shadow-md transition p-2"
         >
@@ -108,7 +112,8 @@ export default function ProductCarousel({ category }) {
           </p>
         </Link>
 
-        ))}
+        );
+        })}
       </div>
     </div>
   </div>

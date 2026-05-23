@@ -39,9 +39,12 @@ export default function SearchResults() {
         <p>No products found.</p>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 sm:gap-6">
-          {products.map((product) => (
-            <div key={product._id} className="bg-white border border-gray-300 rounded-lg shadow-md hover:shadow-2xl transition duration-300">
-            <Link to={`/product/${product.slug || product._id}`} className="block p-4 hover:bg-gray-50 rounded-t-lg">
+          {products.filter((product) => product?.slug || product?._id || product?.id).map((product) => {
+            const productKey = product.slug || product._id || product.id;
+
+            return (
+            <div key={product._id || product.id || productKey} className="bg-white border border-gray-300 rounded-lg shadow-md hover:shadow-2xl transition duration-300">
+            <Link to={`/product/${productKey}`} className="block p-4 hover:bg-gray-50 rounded-t-lg">
                 <img
                 src={product.image || '/assets/product-placeholder.svg'}
                 alt={product.name}
@@ -55,14 +58,15 @@ export default function SearchResults() {
 
             <div className="p-4 pt-0">
                 <button
-                onClick={() => addToCart(product)}
+                onClick={() => productKey && addToCart(product)}
                 className="btn-primary w-full"
                 >
                 Add to Cart
                 </button>
             </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
     </div>

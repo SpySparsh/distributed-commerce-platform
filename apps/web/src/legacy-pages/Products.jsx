@@ -33,9 +33,12 @@ export default function Products() {
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-6">Products</h1>
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {products.map((product) => (
-          <div key={product._id} className="border rounded-lg p-4 shadow hover:shadow-lg">
-            <Link to={`/product/${product.slug || product._id}`}>
+        {products.filter((product) => product?.slug || product?._id || product?.id).map((product) => {
+          const productKey = product.slug || product._id || product.id;
+
+          return (
+          <div key={product._id || product.id || productKey} className="border rounded-lg p-4 shadow hover:shadow-lg">
+            <Link to={`/product/${productKey}`}>
               <img
                 src={product.image || '/assets/product-placeholder.svg'}
                 alt={product.name}
@@ -52,11 +55,12 @@ export default function Products() {
             </div>
 
             <p className="text-blue-600 font-bold mt-1">₹{product.price}</p>
-            <button onClick={() => addToCart(product)} className="btn-primary mt-2 w-full">
+            <button onClick={() => productKey && addToCart(product)} className="btn-primary mt-2 w-full">
               Add to Cart
             </button>
           </div>
-        ))}
+        );
+        })}
       </div>
     </div>
   );
