@@ -2,8 +2,7 @@ import { Prisma } from "@ecommerce/database";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
-import { getAuthenticatedTenantId, getAuthenticatedUserId, requireAuth, requirePermission } from "../auth/auth.middleware.js";
-import { permissions } from "../auth/permissions.js";
+import { getAuthenticatedTenantId, getAuthenticatedUserId, requireAuth, requireRole } from "../auth/auth.middleware.js";
 
 const productReviewsParamsSchema = z.object({
   id: z.uuid()
@@ -15,6 +14,21 @@ const productReviewsQuerySchema = z.object({
 
 const reviewParamsSchema = z.object({
   id: z.uuid()
+});
+
+const adminProductReviewsParamsSchema = z.object({
+  id: z.uuid()
+});
+
+const reviewStatusSchema = z.enum(["pending", "approved", "rejected", "hidden", "deleted"]);
+
+const adminReviewsQuerySchema = z.object({
+  productId: z.uuid().optional(),
+  status: reviewStatusSchema.optional(),
+  q: z.string().trim().min(1).max(120).optional(),
+  sort: z.enum(["newest", "oldest", "rating_high", "rating_low"]).default("newest"),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20)
 });
 
 const createReviewBodySchema = z.object({
@@ -33,7 +47,7 @@ const reviewEligibilityQuerySchema = z.object({
 });
 
 const moderateReviewBodySchema = z.object({
-  status: z.enum(["approved", "rejected"])
+  status: z.enum(["approved", "rejected", "hidden"])
 });
 
 const eligibleOrderStatuses = ["confirmed", "paid", "fulfilled"] as const;
@@ -52,10 +66,16 @@ const toReviewDto = (review: {
   readonly status: string;
   readonly createdAt: Date;
   readonly updatedAt: Date;
+  readonly deletedAt?: Date | null;
   readonly user?: {
     readonly firstName: string | null;
     readonly lastName: string | null;
     readonly email: string;
+  };
+  readonly product?: {
+    readonly id: string;
+    readonly name: string;
+    readonly slug: string;
   };
 }) => ({
   id: review.id,
@@ -71,8 +91,10 @@ const toReviewDto = (review: {
   reviewerName: review.user === undefined
     ? "Verified customer"
     : [review.user.firstName, review.user.lastName].filter(Boolean).join(" ") || review.user.email.split("@")[0],
+  ...(review.product === undefined ? {} : { product: review.product }),
   createdAt: review.createdAt.toISOString(),
-  updatedAt: review.updatedAt.toISOString()
+  updatedAt: review.updatedAt.toISOString(),
+  ...(review.deletedAt === undefined || review.deletedAt === null ? {} : { deletedAt: review.deletedAt.toISOString() })
 });
 
 const recalculateProductRating = async (
@@ -84,7 +106,8 @@ const recalculateProductRating = async (
     where: {
       tenantId,
       productId,
-      status: "approved"
+      status: "approved",
+      deletedAt: null
     },
     _avg: {
       rating: true
@@ -109,6 +132,87 @@ const recalculateProductRating = async (
 
 const createError = (code: string, message: string, statusCode: number): Error =>
   Object.assign(new Error(message), { code, statusCode });
+
+const getAdminReviewOrderBy = (
+  sort: z.infer<typeof adminReviewsQuerySchema>["sort"]
+): Prisma.ReviewOrderByWithRelationInput[] => {
+  switch (sort) {
+    case "oldest":
+      return [{ createdAt: "asc" }];
+    case "rating_high":
+      return [{ rating: "desc" }, { createdAt: "desc" }];
+    case "rating_low":
+      return [{ rating: "asc" }, { createdAt: "desc" }];
+    case "newest":
+    default:
+      return [{ createdAt: "desc" }];
+  }
+};
+
+const buildAdminReviewWhere = (
+  tenantId: string,
+  query: z.infer<typeof adminReviewsQuerySchema>
+): Prisma.ReviewWhereInput => ({
+  tenantId,
+  ...(query.productId === undefined ? {} : { productId: query.productId }),
+  ...(query.status === undefined ? {} : { status: query.status }),
+  ...(query.q === undefined
+    ? {}
+    : {
+        OR: [
+          { title: { contains: query.q, mode: "insensitive" } },
+          { comment: { contains: query.q, mode: "insensitive" } },
+          { user: { email: { contains: query.q, mode: "insensitive" } } },
+          { product: { name: { contains: query.q, mode: "insensitive" } } }
+        ]
+      })
+});
+
+const adminReviewInclude = {
+  user: {
+    select: {
+      firstName: true,
+      lastName: true,
+      email: true
+    }
+  },
+  product: {
+    select: {
+      id: true,
+      name: true,
+      slug: true
+    }
+  }
+} satisfies Prisma.ReviewInclude;
+
+const getAdminReviewsPage = async (
+  prisma: Prisma.TransactionClient,
+  tenantId: string,
+  query: z.infer<typeof adminReviewsQuerySchema>
+) => {
+  const where = buildAdminReviewWhere(tenantId, query);
+  const skip = (query.page - 1) * query.limit;
+  const [reviews, total] = await Promise.all([
+    prisma.review.findMany({
+      where,
+      include: adminReviewInclude,
+      orderBy: getAdminReviewOrderBy(query.sort),
+      skip,
+      take: query.limit
+    }),
+    prisma.review.count({ where })
+  ]);
+
+  return {
+    reviews: reviews.map(toReviewDto),
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.max(Math.ceil(total / query.limit), 1)
+    }
+  };
+};
 
 const evaluateReviewEligibility = async (
   prisma: Prisma.TransactionClient,
@@ -245,7 +349,8 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
           where: {
             tenantId: query.tenantId,
             productId: params.id,
-            status: "approved"
+            status: "approved",
+            deletedAt: null
           },
           include: {
             user: {
@@ -266,7 +371,8 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
           where: {
             tenantId: query.tenantId,
             productId: params.id,
-            status: "approved"
+            status: "approved",
+            deletedAt: null
           },
           _count: {
             _all: true
@@ -367,7 +473,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
               title: body.title,
               comment: body.comment,
               verifiedPurchase: true,
-              status: "approved"
+              status: "pending"
             },
             include: {
               user: {
@@ -489,10 +595,294 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
   );
 
   app.get(
+    "/admin/reviews",
+    {
+      preHandler: [
+        requireRole("admin"),
+        withRateLimit({ keyPrefix: "reviews:admin:list", maxRequests: 120 }),
+        validateRequest({ query: adminReviewsQuerySchema })
+      ]
+    },
+    async (request) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const query = adminReviewsQuerySchema.parse(request.query);
+      const page = await getAdminReviewsPage(app.prisma, tenantId, query);
+
+      return {
+        ok: true,
+        data: page
+      };
+    }
+  );
+
+  app.get(
+    "/admin/products/:id/reviews",
+    {
+      preHandler: [
+        requireRole("admin"),
+        withRateLimit({ keyPrefix: "reviews:admin:product", maxRequests: 120 }),
+        validateRequest({ params: adminProductReviewsParamsSchema, query: adminReviewsQuerySchema.omit({ productId: true }) })
+      ]
+    },
+    async (request, reply) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const params = adminProductReviewsParamsSchema.parse(request.params);
+      const query = adminReviewsQuerySchema.omit({ productId: true }).parse(request.query);
+      const product = await app.prisma.product.findFirst({
+        where: {
+          tenantId,
+          id: params.id,
+          deletedAt: null
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          averageRating: true,
+          reviewCount: true
+        }
+      });
+
+      if (product === null) {
+        await reply.status(404).send({
+          ok: false,
+          error: {
+            code: "PRODUCT_NOT_FOUND",
+            message: "Product not found",
+            correlationId: request.correlationId
+          }
+        });
+        return;
+      }
+
+      const page = await getAdminReviewsPage(app.prisma, tenantId, {
+        ...query,
+        productId: params.id
+      });
+      const breakdown = await app.prisma.review.groupBy({
+        by: ["rating"],
+        where: {
+          tenantId,
+          productId: params.id,
+          status: "approved",
+          deletedAt: null
+        },
+        _count: {
+          _all: true
+        }
+      });
+
+      return {
+        ok: true,
+        data: {
+          product: {
+            ...product,
+            averageRating: product.averageRating.toString()
+          },
+          breakdown: [5, 4, 3, 2, 1].map((rating) => ({
+            rating,
+            count: breakdown.find((item) => item.rating === rating)?._count._all ?? 0
+          })),
+          ...page
+        }
+      };
+    }
+  );
+
+  app.patch(
+    "/admin/reviews/:id/approve",
+    {
+      preHandler: [
+        requireRole("admin"),
+        withRateLimit({ keyPrefix: "reviews:admin:approve", maxRequests: 120 }),
+        validateRequest({ params: reviewParamsSchema })
+      ]
+    },
+    async (request, reply) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const params = reviewParamsSchema.parse(request.params);
+      const review = await app.prisma.$transaction(async (tx) => {
+        const existing = await tx.review.findFirst({
+          where: { tenantId, id: params.id },
+          select: { id: true, productId: true }
+        });
+
+        if (existing === null) {
+          return undefined;
+        }
+
+        const updated = await tx.review.update({
+          where: { id: existing.id },
+          data: { status: "approved", deletedAt: null },
+          include: adminReviewInclude
+        });
+        await recalculateProductRating(tx, tenantId, existing.productId);
+        return updated;
+      });
+
+      if (review === undefined) {
+        await reply.status(404).send({
+          ok: false,
+          error: {
+            code: "REVIEW_NOT_FOUND",
+            message: "Review not found",
+            correlationId: request.correlationId
+          }
+        });
+        return;
+      }
+
+      return { ok: true, data: { review: toReviewDto(review) } };
+    }
+  );
+
+  app.patch(
+    "/admin/reviews/:id/reject",
+    {
+      preHandler: [
+        requireRole("admin"),
+        withRateLimit({ keyPrefix: "reviews:admin:reject", maxRequests: 120 }),
+        validateRequest({ params: reviewParamsSchema })
+      ]
+    },
+    async (request, reply) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const params = reviewParamsSchema.parse(request.params);
+      const review = await app.prisma.$transaction(async (tx) => {
+        const existing = await tx.review.findFirst({
+          where: { tenantId, id: params.id },
+          select: { id: true, productId: true }
+        });
+
+        if (existing === null) {
+          return undefined;
+        }
+
+        const updated = await tx.review.update({
+          where: { id: existing.id },
+          data: { status: "rejected", deletedAt: null },
+          include: adminReviewInclude
+        });
+        await recalculateProductRating(tx, tenantId, existing.productId);
+        return updated;
+      });
+
+      if (review === undefined) {
+        await reply.status(404).send({
+          ok: false,
+          error: {
+            code: "REVIEW_NOT_FOUND",
+            message: "Review not found",
+            correlationId: request.correlationId
+          }
+        });
+        return;
+      }
+
+      return { ok: true, data: { review: toReviewDto(review) } };
+    }
+  );
+
+  app.patch(
+    "/admin/reviews/:id/hide",
+    {
+      preHandler: [
+        requireRole("admin"),
+        withRateLimit({ keyPrefix: "reviews:admin:hide", maxRequests: 120 }),
+        validateRequest({ params: reviewParamsSchema })
+      ]
+    },
+    async (request, reply) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const params = reviewParamsSchema.parse(request.params);
+      const review = await app.prisma.$transaction(async (tx) => {
+        const existing = await tx.review.findFirst({
+          where: { tenantId, id: params.id },
+          select: { id: true, productId: true }
+        });
+
+        if (existing === null) {
+          return undefined;
+        }
+
+        const updated = await tx.review.update({
+          where: { id: existing.id },
+          data: { status: "hidden", deletedAt: null },
+          include: adminReviewInclude
+        });
+        await recalculateProductRating(tx, tenantId, existing.productId);
+        return updated;
+      });
+
+      if (review === undefined) {
+        await reply.status(404).send({
+          ok: false,
+          error: {
+            code: "REVIEW_NOT_FOUND",
+            message: "Review not found",
+            correlationId: request.correlationId
+          }
+        });
+        return;
+      }
+
+      return { ok: true, data: { review: toReviewDto(review) } };
+    }
+  );
+
+  app.delete(
+    "/admin/reviews/:id",
+    {
+      preHandler: [
+        requireRole("admin"),
+        withRateLimit({ keyPrefix: "reviews:admin:delete", maxRequests: 60 }),
+        validateRequest({ params: reviewParamsSchema })
+      ]
+    },
+    async (request, reply) => {
+      const tenantId = getAuthenticatedTenantId(request);
+      const params = reviewParamsSchema.parse(request.params);
+      const now = new Date();
+      const review = await app.prisma.$transaction(async (tx) => {
+        const existing = await tx.review.findFirst({
+          where: { tenantId, id: params.id },
+          select: { id: true, productId: true }
+        });
+
+        if (existing === null) {
+          return undefined;
+        }
+
+        const updated = await tx.review.update({
+          where: { id: existing.id },
+          data: { status: "deleted", deletedAt: now },
+          include: adminReviewInclude
+        });
+        await recalculateProductRating(tx, tenantId, existing.productId);
+        return updated;
+      });
+
+      if (review === undefined) {
+        await reply.status(404).send({
+          ok: false,
+          error: {
+            code: "REVIEW_NOT_FOUND",
+            message: "Review not found",
+            correlationId: request.correlationId
+          }
+        });
+        return;
+      }
+
+      return { ok: true, data: { review: toReviewDto(review), deleted: true } };
+    }
+  );
+
+  app.get(
     "/reviews",
     {
       preHandler: [
-        requirePermission(permissions.reviewsModerate),
+        requireRole("admin"),
         withRateLimit({ keyPrefix: "reviews:admin:list", maxRequests: 120 })
       ]
     },
@@ -502,15 +892,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
         where: {
           tenantId
         },
-        include: {
-          user: {
-            select: {
-              firstName: true,
-              lastName: true,
-              email: true
-            }
-          }
-        },
+        include: adminReviewInclude,
         orderBy: {
           createdAt: "desc"
         },
@@ -530,7 +912,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
     "/reviews/:id",
     {
       preHandler: [
-        requirePermission(permissions.reviewsModerate),
+        requireRole("admin"),
         withRateLimit({ keyPrefix: "reviews:admin:delete", maxRequests: 60 }),
         validateRequest({ params: reviewParamsSchema })
       ]
@@ -538,6 +920,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const tenantId = getAuthenticatedTenantId(request);
       const params = reviewParamsSchema.parse(request.params);
+      const now = new Date();
       const result = await app.prisma.$transaction(async (tx) => {
         const review = await tx.review.findFirst({
           where: {
@@ -554,9 +937,11 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
           return undefined;
         }
 
-        await tx.review.delete({
-          where: {
-            id: review.id
+        await tx.review.update({
+          where: { id: review.id },
+          data: {
+            status: "deleted",
+            deletedAt: now
           }
         });
         await recalculateProductRating(tx, tenantId, review.productId);
@@ -588,7 +973,7 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
     "/reviews/:id/moderate",
     {
       preHandler: [
-        requirePermission(permissions.reviewsModerate),
+        requireRole("admin"),
         withRateLimit({ keyPrefix: "reviews:admin:moderate", maxRequests: 60 }),
         validateRequest({ params: reviewParamsSchema, body: moderateReviewBodySchema })
       ]
@@ -614,17 +999,10 @@ export const reviewRoutes: FastifyPluginAsync = async (app) => {
             id: existing.id
           },
           data: {
-            status: body.status
+            status: body.status,
+            deletedAt: null
           },
-          include: {
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            }
-          }
+          include: adminReviewInclude
         });
         await recalculateProductRating(tx, tenantId, existing.productId);
         return updated;

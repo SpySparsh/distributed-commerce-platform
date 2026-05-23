@@ -76,8 +76,11 @@ enum PaymentProvider {
 }
 
 enum ReviewStatus {
+  pending
   approved
   rejected
+  hidden
+  deleted
 }
 
 enum InventoryReservationStatus {
@@ -557,6 +560,7 @@ model Review {
   status           ReviewStatus @default(approved)
   createdAt        DateTime     @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime     @updatedAt @db.Timestamptz(6)
+  deletedAt        DateTime?    @db.Timestamptz(6)
 
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)

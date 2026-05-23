@@ -181,14 +181,12 @@ export default function ProductDetail() {
         title: reviewForm.title,
         comment: reviewForm.comment
       });
-      const createdReview = res.data.review;
-      setReviews((current) => createdReview ? [createdReview, ...current] : current);
       setReviewForm({ rating: 5, title: '', comment: '' });
-      setReviewMessage('Review submitted. Thank you for sharing feedback.');
+      setReviewMessage('Review submitted. It will appear after admin approval.');
       setReviewEligibility({
         checking: false,
         eligible: false,
-        message: 'This delivered order item has already been reviewed.'
+        message: 'This delivered order item has already been submitted for review.'
       });
       await fetchReviews(product.id);
     } catch (err) {
