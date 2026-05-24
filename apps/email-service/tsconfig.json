@@ -1,0 +1,12 @@
+{
+  "extends": "../../packages/config/tsconfig/node.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@ecommerce/config": ["packages/config/src/index.ts"],
+      "@ecommerce/logger": ["packages/logger/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -88,6 +88,16 @@ const checks = [
     }
   },
   {
+    name: "email service",
+    run: async () => {
+      const health = await requestJson("http://localhost:4100/health");
+
+      if (health.service !== "email-service") {
+        throw new Error(`Unexpected email service health response: ${JSON.stringify(health)}`);
+      }
+    }
+  },
+  {
     name: "redis",
     run: pingRedis
   },

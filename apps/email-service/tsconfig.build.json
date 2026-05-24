@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@ecommerce/config": ["packages/config/dist/index.d.ts"],
+      "@ecommerce/logger": ["packages/logger/dist/index.d.ts"]
+    }
+  }
+}

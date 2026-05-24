@@ -9,10 +9,15 @@ export const handleEmailJob = async (
     throw new Error("EMAIL_WEBHOOK_URL is required to send email jobs");
   }
 
+  if (context.env.EMAIL_SERVICE_SECRET === undefined) {
+    throw new Error("EMAIL_SERVICE_SECRET is required to send email jobs");
+  }
+
   const response = await fetch(context.env.EMAIL_WEBHOOK_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "x-email-secret": context.env.EMAIL_SERVICE_SECRET,
       "idempotency-key": job.metadata.idempotencyKey
     },
     body: JSON.stringify({

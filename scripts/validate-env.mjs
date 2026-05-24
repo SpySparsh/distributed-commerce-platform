@@ -63,7 +63,10 @@ if (!existsSync(envPath)) {
     "NEXT_PUBLIC_API_URL",
     "ACCESS_TOKEN_SECRET",
     "REFRESH_TOKEN_SECRET",
-    "PAYMENT_PROVIDER"
+    "PAYMENT_PROVIDER",
+    "EMAIL_SERVICE_SECRET",
+    "RESEND_API_KEY",
+    "EMAIL_FROM"
   ];
 
   for (const key of required) {
@@ -119,6 +122,12 @@ if (!existsSync(envPath)) {
         errors.push(`${key} is required because Stripe is the only online payment provider.`);
       }
     }
+  }
+
+  const emailSecret = env.get("EMAIL_SERVICE_SECRET");
+
+  if (emailSecret !== undefined && emailSecret.length < 32) {
+    errors.push("EMAIL_SERVICE_SECRET must be at least 32 characters.");
   }
 
   if (env.get("AUTH_COOKIE_SECURE") === "true" && env.get("NEXT_PUBLIC_API_URL")?.startsWith("http://")) {

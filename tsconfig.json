@@ -3,6 +3,7 @@
   "references": [
     { "path": "./apps/web" },
     { "path": "./apps/api" },
+    { "path": "./apps/email-service" },
     { "path": "./apps/worker" },
     { "path": "./packages/cache" },
     { "path": "./packages/config" },

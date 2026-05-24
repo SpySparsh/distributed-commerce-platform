@@ -67,6 +67,22 @@ services:
       meilisearch:
         condition: service_healthy
 
+  email-service:
+    build:
+      context: .
+      dockerfile: apps/email-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      EMAIL_SERVICE_HOST: 0.0.0.0
+      EMAIL_SERVICE_PORT: 4100
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      EMAIL_SERVICE_SECRET: ${EMAIL_SERVICE_SECRET}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+    ports:
+      - "${EMAIL_SERVICE_PORT:-4100}:4100"
+
   worker:
     build:
       context: .
@@ -79,7 +95,8 @@ services:
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-development-master-key}
       MEILISEARCH_INDEX_PREFIX: ${MEILISEARCH_INDEX_PREFIX:-ecommerce}
-      EMAIL_WEBHOOK_URL: ${EMAIL_WEBHOOK_URL:-}
+      EMAIL_WEBHOOK_URL: ${EMAIL_WEBHOOK_URL:-http://email-service:4100/send}
+      EMAIL_SERVICE_SECRET: ${EMAIL_SERVICE_SECRET}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
       WORKER_SHUTDOWN_GRACE_MS: ${WORKER_SHUTDOWN_GRACE_MS:-10000}
     depends_on:
@@ -88,6 +105,8 @@ services:
       redis:
         condition: service_healthy
       meilisearch:
+        condition: service_healthy
+      email-service:
         condition: service_healthy
 
   seed:

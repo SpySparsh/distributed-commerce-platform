@@ -30,6 +30,8 @@ jobs:
             dockerfile: apps/api/Dockerfile
           - service: worker
             dockerfile: apps/worker/Dockerfile
+          - service: email-service
+            dockerfile: apps/email-service/Dockerfile
 
     steps:
       - name: Checkout

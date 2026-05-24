@@ -81,6 +81,9 @@ jobs:
       - name: Build worker
         run: pnpm --filter @ecommerce/worker build
 
+      - name: Build email service
+        run: pnpm --filter @ecommerce/email-service build
+
       - name: Build web
         run: pnpm --filter @ecommerce/web build
         env:

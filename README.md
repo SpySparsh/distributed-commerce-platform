@@ -28,6 +28,7 @@ apps/
   web/                  Next.js frontend
   api/                  Fastify API service
   worker/               BullMQ worker runtime
+  email-service/        Internal transactional email service backed by Resend
 
 packages/
   cache/                Redis cache, cart storage, inventory locks
@@ -58,9 +59,11 @@ flowchart LR
   API --> Queue["BullMQ Queues"]
 
   Queue --> Worker["Worker Runtime"]
+  Worker --> EmailSvc["Email Service"]
   Worker --> PG
   Worker --> Redis
   Worker --> Search
+  EmailSvc --> Resend["Resend"]
 
   Payments["Stripe Checkout"] --> API
   API --> Payments
@@ -200,6 +203,9 @@ BullMQ powers async processing with typed job schemas, retry policies, and dead-
 flowchart LR
   API["API"] --> Queue["BullMQ"]
   Queue --> Email["email"]
+  Email --> Worker["Worker"]
+  Worker --> EmailSvc["Internal Email Service"]
+  EmailSvc --> Resend["Resend"]
   Queue --> Invoice["invoice"]
   Queue --> Analytics["analytics"]
   Queue --> Payments["payment-retry"]
@@ -223,6 +229,29 @@ Async workloads include:
 - domain event dispatch
 
 Detailed doc: [ASYNC_JOBS.md](./ASYNC_JOBS.md)
+
+## Email Service
+
+Transactional emails are delivered through an internal monorepo service instead of calling the email provider directly from API request handlers.
+
+```mermaid
+sequenceDiagram
+  participant API
+  participant Queue as BullMQ
+  participant Worker
+  participant Email as Email Service
+  participant Resend
+  participant User
+
+  API->>Queue: enqueue email.send
+  Queue->>Worker: process job
+  Worker->>Email: POST /send with x-email-secret
+  Email->>Email: validate payload and render template
+  Email->>Resend: send transactional email
+  Resend-->>User: deliver email
+```
+
+The worker preserves queue retries and idempotency keys. The email service validates `x-email-secret`, renders typed templates, and sends through Resend. Current templates cover order confirmation, payment success, delivery confirmation, and review CTA emails.
 
 ## Caching Strategy
 
@@ -291,6 +320,7 @@ flowchart TD
   Host --> Web["web"]
   Host --> API["api"]
   Host --> Worker["worker"]
+  Host --> Email["email-service"]
   Host --> Supabase["Supabase Postgres"]
   Host --> Redis["redis"]
   Host --> Meili["meilisearch"]
@@ -368,6 +398,17 @@ stripe listen --forward-to localhost:4000/payments/stripe/webhook
 
 Copy the generated `whsec_...` value into `STRIPE_WEBHOOK_SECRET`. Without this webhook forwarding, Stripe Checkout can succeed while local orders remain pending.
 
+Email delivery requires Resend and the internal email-service secret:
+
+```bash
+EMAIL_WEBHOOK_URL="http://localhost:4100/send"
+EMAIL_SERVICE_SECRET="replace-with-at-least-32-characters-email-secret"
+RESEND_API_KEY="re_xxx"
+EMAIL_FROM="Store <orders@example.com>"
+```
+
+For Railway or another host, deploy `apps/email-service` independently and set `EMAIL_WEBHOOK_URL` in the worker to the deployed `/send` endpoint.
+
 Validate local environment:
 
 ```bash
@@ -387,6 +428,7 @@ Useful endpoints:
 - Web: `http://localhost:3000`
 - API health: `http://localhost:4000/health`
 - API readiness: `http://localhost:4000/health/ready`
+- Email service health: `http://localhost:4100/health`
 - Meilisearch: `http://localhost:7700/health`
 
 ## Local Commands
@@ -470,6 +512,7 @@ Docker Compose starts these local services:
 - `web`: Next.js standalone frontend
 - `api`: Fastify API
 - `worker`: BullMQ worker runtime
+- `email-service`: internal Resend-backed transactional email webhook
 - `redis`: cache, locks, queues, rate limits
 - `meilisearch`: product/category search
 - `migrate`: one-shot Prisma migration job
@@ -480,7 +523,8 @@ Startup ordering:
 
 - Redis and Meilisearch must be healthy.
 - `migrate` must complete successfully.
-- API and worker start after migrations and infrastructure are ready.
+- API and email-service start after migrations and infrastructure are ready.
+- Worker starts after migrations, infrastructure, and email-service are ready.
 - Web starts after API is healthy.
 
 ## Healthchecks
@@ -496,6 +540,7 @@ The script validates:
 - frontend responds on `localhost:3000`
 - backend responds on `localhost:4000/health`
 - Prisma database readiness through `localhost:4000/health/ready`
+- email service responds on `localhost:4100/health`
 - Redis responds to `PING`
 - Meilisearch reports `available`
 
