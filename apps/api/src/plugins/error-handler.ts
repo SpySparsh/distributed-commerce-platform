@@ -57,6 +57,9 @@ const getErrorCode = (statusCode: number, error: FastifyError | Error): string =
   return "INTERNAL_SERVER_ERROR";
 };
 
+const shouldExposeInternalErrors = (): boolean =>
+  process.env["EXPOSE_INTERNAL_ERRORS"] === "true";
+
 export const registerErrorHandler = (app: FastifyInstance): void => {
   app.setNotFoundHandler(async (request, reply) => {
     await reply.status(404).send({
@@ -73,7 +76,7 @@ export const registerErrorHandler = (app: FastifyInstance): void => {
     async (error: FastifyError | Error, request: FastifyRequest, reply: FastifyReply) => {
       const statusCode = getStatusCode(error);
       const message =
-        statusCode >= 500 && process.env["NODE_ENV"] === "production"
+        statusCode >= 500 && !shouldExposeInternalErrors()
           ? "Internal server error"
           : error.message;
 
@@ -81,9 +84,17 @@ export const registerErrorHandler = (app: FastifyInstance): void => {
         {
           requestId: request.id,
           correlationId: request.correlationId,
+          route: request.routeOptions.url,
           method: request.method,
           url: request.url,
-          error
+          userId: request.user?.id,
+          tenantId: request.user?.tenantId,
+          error: {
+            name: error.name,
+            message: error.message,
+            code: "code" in error ? error.code : undefined,
+            stack: error.stack
+          }
         },
         "Unhandled request error"
       );

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "pnpm --filter @ecommerce/config --filter @ecommerce/types --filter @ecommerce/ui build && next build",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

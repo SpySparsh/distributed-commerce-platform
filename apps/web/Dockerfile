@@ -16,7 +16,7 @@ COPY packages/config packages/config
 COPY packages/types packages/types
 COPY packages/ui packages/ui
 RUN pnpm install --frozen-lockfile --offline --force
-RUN pnpm --filter @ecommerce/web exec next build
+RUN pnpm --filter @ecommerce/web build
 
 FROM base AS runner
 ENV NODE_ENV=production

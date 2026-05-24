@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
+    "dev": "turbo run build --filter './packages/*' && turbo run dev --parallel",
     "lint": "turbo run lint",
     "format": "prettier --write .",
     "test": "vitest run",

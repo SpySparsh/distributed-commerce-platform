@@ -26,6 +26,7 @@ export const createTestApiEnv = (overrides: Partial<ApiEnv> = {}): ApiEnv => ({
   CSRF_HEADER_NAME: "x-csrf-token",
   PAYMENT_PROVIDER: "stripe",
   STRIPE_SECRET_KEY: "sk_test_mocked",
+  STRIPE_WEBHOOK_SECRET: "whsec_test_mocked",
   PAYMENT_WEBHOOK_TOLERANCE_SECONDS: 300,
   MEILISEARCH_HOST: "http://localhost:7700",
   MEILISEARCH_API_KEY: "development-master-key",

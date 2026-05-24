@@ -3,6 +3,16 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "paths": {
+      "@worker/*": ["apps/worker/src/*"],
+      "@ecommerce/cache": ["packages/cache/dist/index.d.ts"],
+      "@ecommerce/config": ["packages/config/dist/index.d.ts"],
+      "@ecommerce/database": ["packages/database/dist/index.d.ts"],
+      "@ecommerce/events": ["packages/events/dist/index.d.ts"],
+      "@ecommerce/logger": ["packages/logger/dist/index.d.ts"],
+      "@ecommerce/queue": ["packages/queue/dist/index.d.ts"],
+      "@ecommerce/search": ["packages/search/dist/index.d.ts"]
+    }
   }
 }

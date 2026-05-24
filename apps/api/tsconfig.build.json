@@ -3,6 +3,19 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "dist",
-    "rootDir": "src"
-  }
+    "rootDir": "src",
+    "paths": {
+      "@api/*": ["apps/api/src/*"],
+      "@ecommerce/cache": ["packages/cache/dist/index.d.ts"],
+      "@ecommerce/config": ["packages/config/dist/index.d.ts"],
+      "@ecommerce/database": ["packages/database/dist/index.d.ts"],
+      "@ecommerce/events": ["packages/events/dist/index.d.ts"],
+      "@ecommerce/logger": ["packages/logger/dist/index.d.ts"],
+      "@ecommerce/queue": ["packages/queue/dist/index.d.ts"],
+      "@ecommerce/search": ["packages/search/dist/index.d.ts"],
+      "@ecommerce/types": ["packages/types/dist/index.d.ts"],
+      "@ecommerce/validation": ["packages/validation/dist/index.d.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/test/**", "src/test-utils/**"]
 }

@@ -2,8 +2,7 @@ import { jobNames } from "@ecommerce/queue";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { validateRequest, withRateLimit } from "../../http/validate.js";
-import { getAuthenticatedTenantId, getAuthenticatedUserId, requirePermission } from "../auth/auth.middleware.js";
-import { permissions } from "../auth/permissions.js";
+import { getAuthenticatedTenantId, getAuthenticatedUserId, requireRole } from "../auth/auth.middleware.js";
 
 const moneySchema = z.string().regex(/^\d+(\.\d{1,2})?$/);
 const adminProductBodySchema = z.object({
@@ -101,7 +100,7 @@ const toAdminProduct = (product: {
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
   const adminGuard = [
-    requirePermission(permissions.searchAdmin),
+    requireRole("admin"),
     withRateLimit({ keyPrefix: "admin", maxRequests: 180 })
   ];
 

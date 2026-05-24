@@ -58,19 +58,35 @@ jobs:
         run: pnpm --filter @ecommerce/database prisma:validate
         env:
           DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+          DIRECT_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
 
       - name: Prisma generate
         run: pnpm db:generate
         env:
           DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+          DIRECT_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
 
       - name: Apply database migrations
         run: pnpm db:migrate
         env:
           DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+          DIRECT_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Build API
+        run: pnpm --filter @ecommerce/api build
+
+      - name: Build worker
+        run: pnpm --filter @ecommerce/worker build
+
+      - name: Build web
+        run: pnpm --filter @ecommerce/web build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:4000
+          NEXT_PUBLIC_TENANT_ID: 00000000-0000-0000-0000-000000000000
+          NEXT_PUBLIC_TENANT_SLUG: demo-store
 
       - name: Unit tests
         run: pnpm test:unit

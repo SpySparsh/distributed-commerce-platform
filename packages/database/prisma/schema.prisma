@@ -559,7 +559,7 @@ model Review {
   title            String
   comment          String
   verifiedPurchase Boolean      @default(true)
-  status           ReviewStatus @default(approved)
+  status           ReviewStatus @default(pending)
   createdAt        DateTime     @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime     @updatedAt @db.Timestamptz(6)
   deletedAt        DateTime?    @db.Timestamptz(6)

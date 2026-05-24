@@ -13,8 +13,8 @@ export interface BuildAppOptions {
 }
 
 const validateDefaultPaymentProviderConfig = (config: ApiEnv): void => {
-  if (config.STRIPE_SECRET_KEY === undefined) {
-    throw new Error("PAYMENT_PROVIDER=stripe requires STRIPE_SECRET_KEY");
+  if (config.STRIPE_SECRET_KEY.length === 0 || config.STRIPE_WEBHOOK_SECRET.length === 0) {
+    throw new Error("PAYMENT_PROVIDER=stripe requires STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET");
   }
 };
 
@@ -36,8 +36,8 @@ export const buildApp = async ({ config }: BuildAppOptions): Promise<FastifyInst
   await registerPlugins(app, config);
   app.log.info({
     defaultProvider: config.PAYMENT_PROVIDER,
-    stripeSecretConfigured: config.STRIPE_SECRET_KEY !== undefined,
-    stripeWebhookConfigured: config.STRIPE_WEBHOOK_SECRET !== undefined,
+    stripeSecretConfigured: config.STRIPE_SECRET_KEY.length > 0,
+    stripeWebhookConfigured: config.STRIPE_WEBHOOK_SECRET.length > 0,
     stripeVersion: "REST API via fetch; no stripe SDK in @ecommerce/api"
   }, "Payment provider configuration validated");
   registerLifecycleHooks(app);

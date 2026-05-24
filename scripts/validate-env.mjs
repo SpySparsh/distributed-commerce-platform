@@ -112,11 +112,11 @@ if (!existsSync(envPath)) {
   const paymentProvider = env.get("PAYMENT_PROVIDER");
 
   if (paymentProvider === "stripe") {
-    for (const key of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]) {
+    for (const key of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"]) {
       const value = env.get(key);
 
       if (value === undefined || value.length === 0) {
-        warnings.push(`${key} is empty. Stripe payment/webhook flows will not work until it is set.`);
+        errors.push(`${key} is required because Stripe is the only online payment provider.`);
       }
     }
   }
