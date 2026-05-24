@@ -20,6 +20,10 @@ export type CartParams = z.infer<typeof cartParamsSchema>;
 export const upsertCartItemBodySchema = z.object({
   productId: z.uuid(),
   variantId: z.uuid(),
+  name: z.string().trim().min(1).max(240).optional(),
+  sku: z.string().trim().min(1).max(128).optional(),
+  slug: z.string().trim().min(1).max(240).optional(),
+  image: z.url().optional(),
   quantity: z.number().int().positive().max(99),
   unitPrice: z.string().regex(/^\d+(\.\d{1,2})?$/),
   currency: z.string().length(3).default("USD")

@@ -1,10 +1,19 @@
-import type { PrismaClient } from "@ecommerce/database";
+import type { Prisma, PrismaClient } from "@ecommerce/database";
 import type { CartOwnerFilter, CartRepository, CreateCartInput, PersistCartInput } from "./cart.repository.js";
 import type { CartDto, CartItemDto } from "./cart.types.js";
 
 interface CartItemRow {
   readonly productId: string;
   readonly variantId: string;
+  readonly product?: {
+    readonly name: string;
+    readonly slug: string;
+    readonly images: readonly { readonly url: string; readonly isPrimary: boolean }[];
+  };
+  readonly variant?: {
+    readonly sku: string;
+    readonly name: string;
+  };
   readonly quantity: number;
   readonly unitPrice: { toString(): string };
   readonly currency: string;
@@ -26,15 +35,39 @@ interface CartRow {
 
 const cartInclude = {
   items: {
-    where: {
-      deletedAt: null
+    where: { deletedAt: null },
+    include: {
+      product: {
+        select: {
+          name: true,
+          slug: true,
+          images: {
+            where: { deletedAt: null },
+            orderBy: [{ isPrimary: "desc" }, { position: "asc" }] satisfies Prisma.ProductImageOrderByWithRelationInput[],
+            select: {
+              url: true,
+              isPrimary: true
+            }
+          }
+        }
+      },
+      variant: {
+        select: {
+          sku: true,
+          name: true
+        }
+      }
     }
   }
-} as const;
+} satisfies Prisma.CartInclude;
 
 const toItemDto = (item: CartItemRow): CartItemDto => ({
   productId: item.productId,
   variantId: item.variantId,
+  ...(item.product?.name === undefined ? {} : { name: item.product.name }),
+  ...(item.variant?.sku === undefined ? {} : { sku: item.variant.sku }),
+  ...(item.product?.slug === undefined ? {} : { slug: item.product.slug }),
+  ...(item.product?.images[0]?.url === undefined ? {} : { image: item.product.images[0].url }),
   quantity: item.quantity,
   unitPrice: item.unitPrice.toString(),
   currency: item.currency,

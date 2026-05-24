@@ -21,7 +21,18 @@ const normalizeProduct = (product) => ({
 const normalizeOrder = (order) => ({
   ...order,
   _id: order._id || order.id,
-  orderItems: order.orderItems || order.items || [],
+  orderItems: (order.orderItems || order.items || []).map((item) => ({
+    ...item,
+    product: item.product || {
+      _id: item.productId,
+      id: item.productId,
+      slug: item.productSlug,
+      name: item.productName || item.name || 'Product unavailable',
+      image: item.image
+    },
+    image: item.image,
+    name: item.productName || item.name || 'Product unavailable'
+  })),
   shippingInfo: order.shippingInfo || order.shippingAddress || {},
   totalAmount: order.totalAmount,
   isDelivered: order.isDelivered ?? (order.status === 'fulfilled' || order.status === 'delivered')

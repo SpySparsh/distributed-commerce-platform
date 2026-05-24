@@ -1,6 +1,10 @@
 export interface CartItemDto {
   readonly productId: string;
   readonly variantId: string;
+  readonly name?: string;
+  readonly sku?: string;
+  readonly slug?: string;
+  readonly image?: string;
   readonly quantity: number;
   readonly unitPrice: string;
   readonly currency: string;

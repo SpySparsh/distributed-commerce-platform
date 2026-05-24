@@ -22,6 +22,9 @@ interface ProductVariantSnapshot {
   readonly productId: string;
   readonly sku: string;
   readonly name: string;
+  readonly product: {
+    readonly name: string;
+  };
   readonly price: Prisma.Decimal;
   readonly currency: string;
 }
@@ -319,7 +322,12 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
             sku: true,
             name: true,
             price: true,
-            currency: true
+            currency: true,
+            product: {
+              select: {
+                name: true
+              }
+            }
           }
         });
 
@@ -378,7 +386,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
                 productId: variant.productId,
                 variantId: variant.id,
                 sku: variant.sku,
-                name: variant.name,
+                name: variant.product.name,
                 quantity: input.quantity,
                 unitPrice: variant.price,
                 totalAmount,
@@ -837,7 +845,12 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
         sku: true,
         name: true,
         price: true,
-        currency: true
+        currency: true,
+        product: {
+          select: {
+            name: true
+          }
+        }
       }
     });
     const byId = new Map<string, ProductVariantSnapshot>(variants.map((variant) => [variant.id, variant]));
@@ -1077,7 +1090,7 @@ export class PrismaCheckoutRepository implements CheckoutRepository {
         productId: item.productId,
         variantId: item.variantId,
         sku: variant.sku,
-        name: variant.name,
+        name: variant.product.name,
         quantity: item.quantity,
         unitPrice: variant.price,
         totalAmount: multiplyMoney(variant.price.toString(), item.quantity),

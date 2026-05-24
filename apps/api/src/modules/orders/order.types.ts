@@ -17,6 +17,9 @@ export interface OrderItemDto {
   readonly variantId: string;
   readonly sku: string;
   readonly name: string;
+  readonly productName?: string;
+  readonly productSlug?: string;
+  readonly image?: string;
   readonly quantity: number;
   readonly unitPrice: string;
   readonly totalAmount: string;

@@ -34,8 +34,10 @@ const toLegacyCartItems = (cart) =>
     _id: item.variantId,
     productId: item.productId,
     variantId: item.variantId,
-    name: item.name || item.sku || item.variantId,
+    name: item.name || item.sku || 'Product unavailable',
     sku: item.sku,
+    slug: item.slug,
+    image: item.image,
     qty: item.quantity,
     price: Number(item.unitPrice),
     unitPrice: item.unitPrice,
@@ -189,6 +191,9 @@ export const CartProvider = ({ children }) => {
       sku: variant.sku,
       price: variant.price,
       currency: variant.currency,
+      name: detail.name,
+      slug: detail.slug,
+      image: detail.image || detail.primaryImage?.url || detail.images?.[0]?.url,
       countInStock: variant.availableQuantity
     };
   };
@@ -223,6 +228,10 @@ export const CartProvider = ({ children }) => {
         return await axios.post(`/carts/${activeCart.id}/items`, {
           productId: cartProduct._id,
           variantId: cartProduct.variantId,
+          name: cartProduct.name,
+          sku: cartProduct.sku,
+          slug: cartProduct.slug,
+          image: cartProduct.image,
           quantity: qty,
           unitPrice: String(cartProduct.price),
           currency: cartProduct.currency || 'USD'
@@ -303,6 +312,10 @@ export const CartProvider = ({ children }) => {
       const res = await axios.put(`/carts/${activeCart.id}/items`, {
         productId: currentItem.productId,
         variantId,
+        name: currentItem.name,
+        sku: currentItem.sku,
+        slug: currentItem.slug,
+        image: currentItem.image,
         quantity: qty,
         unitPrice: String(currentItem.price),
         currency: currentItem.currency || 'USD'

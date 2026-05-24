@@ -45,6 +45,23 @@ const isOwnedBy = (cart: CartDto, owner?: CartOwner): boolean => {
 
 const isActiveCart = (cart: CartDto): boolean => cart.status === "active";
 
+const itemMetadata = (
+  item: UpsertCartItemBody,
+  existingItem?: CartDto["items"][number]
+) => {
+  const name = item.name ?? existingItem?.name;
+  const sku = item.sku ?? existingItem?.sku;
+  const slug = item.slug ?? existingItem?.slug;
+  const image = item.image ?? existingItem?.image;
+
+  return {
+    ...(name === undefined ? {} : { name }),
+    ...(sku === undefined ? {} : { sku }),
+    ...(slug === undefined ? {} : { slug }),
+    ...(image === undefined ? {} : { image })
+  };
+};
+
 export interface CartService {
   getOrCreateCart(identity: CartIdentityQuery): Promise<CartDto>;
   getCart(tenantId: string, cartId: string, owner?: CartOwner): Promise<CartDto | undefined>;
@@ -147,6 +164,7 @@ export const createCartService = (
         {
           productId: item.productId,
           variantId: item.variantId,
+          ...itemMetadata(item, existingItem),
           quantity: nextQuantity,
           unitPrice: item.unitPrice,
           currency: item.currency,
@@ -201,11 +219,13 @@ export const createCartService = (
       }
 
       const now = new Date().toISOString();
+      const existingItem = existing.items.find((existingItem) => existingItem.variantId === item.variantId);
       const nextItems = [
         ...existing.items.filter((existingItem) => existingItem.variantId !== item.variantId),
         {
           productId: item.productId,
           variantId: item.variantId,
+          ...itemMetadata(item, existingItem),
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           currency: item.currency,

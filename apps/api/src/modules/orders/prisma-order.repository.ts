@@ -18,6 +18,11 @@ interface OrderItemRow {
   readonly id: string;
   readonly productId: string;
   readonly variantId: string;
+  readonly product?: {
+    readonly name: string;
+    readonly slug: string;
+    readonly images: readonly { readonly url: string; readonly isPrimary: boolean }[];
+  };
   readonly sku: string;
   readonly name: string;
   readonly quantity: number;
@@ -124,6 +129,20 @@ const orderInclude = {
     where: { deletedAt: null },
     orderBy: { createdAt: "asc" },
     include: {
+      product: {
+        select: {
+          name: true,
+          slug: true,
+          images: {
+            where: { deletedAt: null },
+            orderBy: [{ isPrimary: "desc" }, { position: "asc" }],
+            select: {
+              url: true,
+              isPrimary: true
+            }
+          }
+        }
+      },
       reviews: {
         select: {
           id: true
@@ -175,7 +194,10 @@ const toOrderDto = (row: OrderRow): OrderDto => ({
     productId: item.productId,
     variantId: item.variantId,
     sku: item.sku,
-    name: item.name,
+    name: item.product?.name ?? (item.name.toLowerCase() === "default" ? "Product unavailable" : item.name),
+    ...(item.product?.name === undefined ? {} : { productName: item.product.name }),
+    ...(item.product?.slug === undefined ? {} : { productSlug: item.product.slug }),
+    ...(item.product?.images[0]?.url === undefined ? {} : { image: item.product.images[0].url }),
     quantity: item.quantity,
     unitPrice: item.unitPrice.toString(),
     totalAmount: item.totalAmount.toString(),

@@ -625,7 +625,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const params = idParamsSchema.parse(request.params);
       const now = new Date();
 
-      const order = await app.prisma.$transaction(async (tx) => {
+      const result = await app.prisma.$transaction(async (tx) => {
         const existing = await tx.order.findFirst({
           where: { tenantId, id: params.id, deletedAt: null },
           include: {
@@ -637,6 +637,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         if (existing === null) {
           return undefined;
         }
+
+        let deliveredNow = false;
 
         if (existing.status !== "fulfilled") {
           await tx.order.update({
@@ -663,21 +665,27 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
               }
             }
           });
+
+          deliveredNow = true;
         }
 
-        return tx.order.findFirstOrThrow({
+        const order = await tx.order.findFirstOrThrow({
           where: { tenantId, id: existing.id },
           include: {
             items: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } },
             payments: { where: { deletedAt: null }, orderBy: { createdAt: "desc" } }
           }
         });
+
+        return { order, deliveredNow };
       });
 
-      if (order === undefined) {
+      if (result === undefined) {
         await reply.status(404).send({ ok: false, error: { code: "ORDER_NOT_FOUND", message: "Order not found", correlationId: request.correlationId } });
         return;
       }
+
+      const { order, deliveredNow } = result;
 
       request.log.info(
         {
@@ -688,31 +696,33 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         "ORDER DELIVERED"
       );
 
-      await enqueueOrderEmail({
-        tenantId,
-        requestId: request.id,
-        to: order.email,
-        template: "order-delivered",
-        idempotencyKey: `order-delivered:${order.id}:${order.deliveredAt?.toISOString() ?? now.toISOString()}`,
-        variables: {
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          products: order.items.map((item) => ({
-            name: item.name,
-            quantity: item.quantity,
-            totalAmount: item.totalAmount.toString(),
-            reviewUrl: `${app.config.FRONTEND_URL.replace(/\/$/, "")}/product/${item.productId}?reviewOrderId=${order.id}&reviewOrderItemId=${item.id}`
-          })),
-          reviewLinks: order.items.map((item) => ({
-            productId: item.productId,
-            orderItemId: item.id,
-            name: item.name,
-            url: `${app.config.FRONTEND_URL.replace(/\/$/, "")}/product/${item.productId}?reviewOrderId=${order.id}&reviewOrderItemId=${item.id}`
-          })),
-          deliveredAt: order.deliveredAt?.toISOString() ?? now.toISOString(),
-          message: "Thank you for shopping with us."
-        }
-      });
+      if (deliveredNow) {
+        await enqueueOrderEmail({
+          tenantId,
+          requestId: request.id,
+          to: order.email,
+          template: "order-delivered",
+          idempotencyKey: `order-delivered:${order.id}`,
+          variables: {
+            orderId: order.id,
+            orderNumber: order.orderNumber,
+            products: order.items.map((item) => ({
+              name: item.name,
+              quantity: item.quantity,
+              totalAmount: item.totalAmount.toString(),
+              reviewUrl: `${app.config.FRONTEND_URL.replace(/\/$/, "")}/product/${item.productId}?reviewOrderId=${order.id}&reviewOrderItemId=${item.id}`
+            })),
+            reviewLinks: order.items.map((item) => ({
+              productId: item.productId,
+              orderItemId: item.id,
+              name: item.name,
+              url: `${app.config.FRONTEND_URL.replace(/\/$/, "")}/product/${item.productId}?reviewOrderId=${order.id}&reviewOrderItemId=${item.id}`
+            })),
+            deliveredAt: order.deliveredAt?.toISOString() ?? now.toISOString(),
+            message: "Thank you for shopping with us."
+          }
+        });
+      }
 
       return {
         ok: true,
